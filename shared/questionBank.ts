@@ -16,6 +16,8 @@ export interface Question {
   id: string;
   pillar: 1 | 2 | 3 | 4;
   text: string;
+  /** Optional helper line under the question. */
+  help?: string;
   kind: 'choice' | 'text';
   options?: Option[];
   required: boolean;
@@ -31,7 +33,8 @@ const BANK_V1: Question[] = [
   {
     id: 'p1.harm',
     pillar: 1,
-    text: 'Is anyone causing harm here? (Harm = physical violence or aggressive berating.)',
+    text: 'Is anyone causing harm here?',
+    help: 'Harm means physical violence or aggressive berating.',
     kind: 'choice',
     options: [YES, NO, NOT_SURE],
     required: true,
@@ -51,8 +54,8 @@ const BANK_V1: Question[] = [
     text: 'Are you being asked to participate, or to be present?',
     kind: 'choice',
     options: [
-      { value: 'participate', label: 'Participate' },
-      { value: 'present', label: 'Be present or support' },
+      { value: 'participate', label: 'Participate — do it myself' },
+      { value: 'present', label: 'Be present or show support' },
       NOT_SURE,
     ],
     required: true,
@@ -62,6 +65,7 @@ const BANK_V1: Question[] = [
     id: 'p2.examined',
     pillar: 2,
     text: 'Have you actually examined this, or are you reacting?',
+    help: 'An examined belief is one you could have rejected.',
     kind: 'choice',
     options: [
       { value: 'examined', label: 'Examined' },
@@ -74,6 +78,7 @@ const BANK_V1: Question[] = [
     id: 'p2.change',
     pillar: 2,
     text: 'What would change your mind?',
+    help: 'Optional. A sentence is enough.',
     kind: 'text',
     required: false,
   },
@@ -81,6 +86,7 @@ const BANK_V1: Question[] = [
     id: 'p3.family',
     pillar: 3,
     text: 'Does this affect a family or a child?',
+    help: "The family exists for the child, not the other way around.",
     kind: 'choice',
     options: [YES, NO],
     required: true,
@@ -102,6 +108,7 @@ const BANK_V1: Question[] = [
     id: 'p4.domain',
     pillar: 4,
     text: 'Whose domain is this?',
+    help: 'Every group has authority in its own domain, and a person over their own choices.',
     kind: 'choice',
     options: [
       { value: 'mine', label: 'Mine' },
@@ -150,7 +157,7 @@ export const PILLAR_NAMES: Record<number, string> = {
   1: 'Belief Plurality',
   2: 'Intellectual Autonomy',
   3: 'Familial Realism',
-  4: 'Authority and Equality',
+  4: 'Authority & Equality',
 };
 
 export interface AnswerInput {
