@@ -1,0 +1,7 @@
+# Copy to .dev.vars for `npm run pages:dev`. Never commit .dev.vars.
+GEMINI_API_KEY=your-key-here
+GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
+# Local only: enables a "dev sign-in" button. Ignored unless the request is from localhost.
+DEV_LOGIN=true
+# Optional: point Gemini calls at a mock server (used by the e2e tests).
+# GEMINI_BASE_URL=http://127.0.0.1:8790

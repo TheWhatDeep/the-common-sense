@@ -5,3 +5,7 @@ dist/
 build/
 __pycache__/
 .DS_Store
+.dev.vars
+.wrangler/
+test-results/
+e2e/screens/

@@ -1,0 +1,18 @@
+name = "the-common-sense"
+compatibility_date = "2026-10-01"
+pages_build_output_dir = "dist"
+
+[vars]
+# Swap the Gemini model here without touching code.
+GEMINI_MODEL = "gemini-2.5-flash"
+# Public OAuth client ID from Google Cloud Console (not a secret).
+GOOGLE_CLIENT_ID = ""
+
+[[d1_databases]]
+binding = "DB"
+database_name = "common-sense"
+# Replace with the id printed by `npx wrangler d1 create common-sense`.
+database_id = "00000000-0000-0000-0000-000000000000"
+migrations_dir = "migrations"
+
+# Secret, set with: npx wrangler pages secret put GEMINI_API_KEY

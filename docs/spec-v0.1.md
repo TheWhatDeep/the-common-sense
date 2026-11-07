@@ -1,0 +1,208 @@
+# The Common Sense — Spec v0.1
+
+Nov 7, 2026 · @Deep
+
+## Overview
+
+The Common Sense is a mobile-first guide app that walks a user through a real situation using the Four Pillars of Respect, then returns an AI-generated read of that situation. It is built for people who have chosen to adopt this framework; it is not a general advice app.
+
+Core principle: the app guides, the user decides. Every result ends by handing the decision back to the user, which keeps the app consistent with Pillar 2 (Intellectual Autonomy).
+
+The four pillars:
+
+1. **Belief Plurality:** respect others' beliefs and rights; don't participate in what contradicts your own. Harm = physical violence or aggressive berating.
+2. **Intellectual Autonomy:** examine beliefs, keep checking them, never force them on others.
+3. **Familial Realism:** the family exists for the child; a responsible parent beats a dysfunctional family; lawful separation is valid.
+4. **Authority and Equality:** every group has authority in its own domain; disagree through peaceful, legitimate means; no attacking; no special treatment; if you can't accept it, walk away.
+
+## Locked decisions
+
+| Area | Decision | Consequence |
+| --- | --- | --- |
+| Platform | Mobile-first PWA | Installable from the browser; no app stores in v1 |
+| Hosting + backend | Cloudflare Pages + Pages Functions | All server logic runs in Functions |
+| Database | Cloudflare D1 (proposed) | Keeps the stack inside Cloudflare; ratify or replace |
+| AI | Gemini API, free tier | Called only from Functions; one shared quota |
+| API key | Stored as a Cloudflare secret | Never shipped to the client |
+| Accounts | Required | Sign-in, sessions, server-side history |
+| Free-tier data terms | Accepted | Users see a disclosure before their first situation |
+| Answer style | AI writes a read; user decides | Every result ends with the decision handed back |
+
+## Architecture
+
+&#91;embedded content: architecture · 4 components\]
+
+The PWA talks only to Pages Functions. Functions own auth, the rate limit and every Gemini call, so the key stays a server-side secret.
+
+Analyze flow:
+
+1. The PWA sends the situation ID to `POST /api/situations/:id/analyze`.
+2. Functions check the session and the user's daily count.
+3. Functions load the situation and answers from D1 and build the prompt.
+4. Functions call Gemini, validate the JSON, store the result and increment usage.
+5. The PWA renders the result, or the Safety notice if `safety_flag` is true.
+
+## Data model
+
+Six D1 tables. Every row a user owns carries `user_id`, and every query filters by the session's user.
+
+| Table | Fields | Notes |
+| --- | --- | --- |
+| `users` | id, email, display\_name, disclosure\_accepted\_at, created\_at | `disclosure_accepted_at` null = disclosure not yet shown |
+| `sessions` | id, user\_id, expires\_at, created\_at | id is a random token sent as an HttpOnly cookie |
+| `situations` | id, user\_id, text, status, bank\_version, created\_at, updated\_at | status: `draft` → `answered` → `analyzed` |
+| `answers` | id, situation\_id, question\_id, value, note | One row per answered question; `note` optional free text |
+| `results` | id, situation\_id, payload\_json, model, created\_at | Validated AI output; one per situation in v1 |
+| `usage` | user\_id, date, count | Daily analyze calls, for the rate limit |
+
+Deleting a situation deletes its answers and result. Deleting an account deletes every row it owns.
+
+## Screens and states
+
+The mockup on the Design canvas is the visual reference: deep green accent, Space Grotesk headings, Inter body, 390 px mobile frame.
+
+| Screen | Purpose | States |
+| --- | --- | --- |
+| Sign in | Create account or sign in | idle, submitting, error |
+| Disclosure | One-time notice that situations are sent to Google's Gemini free tier and may be used by Google | shown until accepted; cannot be skipped |
+| Home | Hamburger, app name, big plus, "What's the situation?" | default; daily limit reached (plus disabled, reset time shown) |
+| Sidebar | Profile, Settings, Log out | open, closed |
+| Situation | Free-text input, 1,000-character cap, step 1 of 5 | empty (Continue disabled), filled, over limit |
+| Pillar question | One pillar per screen, main question + branching follow-ups | unanswered (Next disabled), answered, follow-up revealed |
+| Analyzing | Waiting on Gemini | loading, timeout, error with retry |
+| Safety notice | Shown when the user reports physical violence | always offers emergency info before continuing |
+| Result | Pillar-by-pillar read, bottom line, "your call" footer | default; Save; New situation |
+| Profile | Name, email, saved situations | list, empty, delete confirm |
+| Settings | Account deletion, data disclosure text | default, delete confirm |
+
+Back navigation inside the interviewer keeps answers. Closing the interviewer keeps the situation as a draft.
+
+## Interview engine
+
+The interviewer is deterministic: questions and branching live in a static JSON config shipped with the app, not generated by AI. Gemini only sees the finished answers. Every question allows an optional note.
+
+| ID | Pillar | Question | Answers | Shown when |
+| --- | --- | --- | --- | --- |
+| p1.harm | 1 | Is anyone causing harm here? (Harm = physical violence or aggressive berating.) | Yes / No / Not sure | Always |
+| p1.violence | 1 | Is it physical violence? | Yes / No | p1.harm = Yes |
+| p1.participate | 1 | Are you being asked to participate, or to be present? | Participate / Be present or support / Not sure | p1.harm = No or Not sure |
+| p2.examined | 2 | Have you actually examined this, or are you reacting? | Examined / Reacting / Not sure | Always |
+| p2.change | 2 | What would change your mind? | Free text | Always (optional) |
+| p3.family | 3 | Does this affect a family or a child? | Yes / No | Always |
+| p3.function | 3 | Is the family's wellbeing at stake, or only its appearance? | Wellbeing / Appearance / Both | p3.family = Yes |
+| p4.domain | 4 | Whose domain is this? | Mine / Theirs / Shared / Not sure | Always |
+| p4.method | 4 | Is this disagreement or an attack? | Disagreement / Attack / Not sure | Always |
+| p4.accept | 4 | Can you accept this? | Yes / No / Not sure | p4.domain = Theirs or Shared |
+| p4.walkaway | 4 | Can you walk away lawfully? | Yes / No / Not sure | p4.accept = No |
+
+Rules:
+
+- p1.violence = Yes routes to the Safety notice before Pillar 2. The interview continues afterwards.
+- Unanswered required questions block Next.
+- The question bank is versioned (`bank_version` stored with each situation) so old results stay readable after edits.
+
+## AI layer
+
+One Gemini call per situation, made by the analyze Function. Model: the current free-tier Flash model, set in one config value so it can be swapped.
+
+**Input** = system prompt (the framework text + guardrails) + the situation text + every answer and note, labelled by question ID.
+
+**Guardrails in the system prompt:**
+
+- Apply only the four pillars as written. No outside moral, religious or political opinions.
+- Never tell the user what they must do. Describe how each pillar applies; the bottom line ends by handing the decision back.
+- Mark a pillar as not applicable when the answers say so, instead of inventing a link.
+- If the situation describes danger to someone's life or safety, return `safety_flag: true`; the client shows the Safety notice instead of the result.
+- Plain language, no jargon, under 200 words total.
+
+**Output** = JSON, enforced with Gemini's structured-output mode and validated server-side:
+
+```json
+{
+  "pillars": [
+    { "pillar": 1, "applies": true, "read": "string" },
+    { "pillar": 2, "applies": true, "read": "string" },
+    { "pillar": 3, "applies": false, "read": "string" },
+    { "pillar": 4, "applies": true, "read": "string" }
+  ],
+  "bottom_line": "string",
+  "safety_flag": false
+}
+```
+
+**Failure handling:**
+
+| Failure | Behavior |
+| --- | --- |
+| Invalid JSON or schema mismatch | Retry once; then show error with retry, usage not counted |
+| Gemini quota exhausted | "Busy right now, try again later"; usage not counted |
+| Timeout (20 s) | Error with retry; usage not counted |
+| Gemini blocks the content | Neutral message; situation kept as draft |
+
+## API endpoints
+
+All under `/api`, served by Pages Functions. Everything except sign-in requires a valid session cookie; a request for another user's data returns 404, not 403.
+
+| Method | Path | Does |
+| --- | --- | --- |
+| POST | /auth/sign-in | Starts sign-in (method is an open question) |
+| POST | /auth/sign-out | Deletes the session |
+| GET | /me | Current user, disclosure status, today's remaining analyses |
+| POST | /me/disclosure | Records disclosure acceptance |
+| DELETE | /me | Deletes the account and all its data |
+| POST | /situations | Creates a draft from the situation text |
+| GET | /situations | Lists the user's saved situations, newest first |
+| GET | /situations/:id | One situation with answers and result |
+| PUT | /situations/:id/answers | Saves answers; validates against the question bank |
+| POST | /situations/:id/analyze | Checks the limit, calls Gemini, stores and returns the result |
+| DELETE | /situations/:id | Deletes the situation, answers and result |
+
+## Rate limits, privacy and security
+
+**Rate limit.** Each user gets a daily cap on analyze calls (default 5, one config value). The count resets at midnight Asia/Manila. Only successful analyses count. The cap protects the single shared free-tier quota.
+
+**Disclosure.** Before the first situation, the user must accept a notice in plain words: situations are sent to Google's Gemini API on its free tier, and Google may use them to improve its products. The same text lives in Settings.
+
+**Security.**
+
+- Gemini key stored as a Cloudflare secret; it never appears in client code, responses or logs.
+- Sessions: random token, HttpOnly, Secure, SameSite=Lax cookie, 30-day expiry.
+- Every query scoped to the session's `user_id`.
+- Situation text and notes are never logged.
+- Input caps: 1,000 characters for the situation, 300 per note.
+
+## Out of scope for v1
+
+- Native iOS and Android apps
+- Offline analysis (the interviewer may work offline; analysis needs a connection)
+- Follow-up chat with the AI after a result
+- Custom or user-defined pillars
+- Sharing results with other users
+- Payments or a paid Gemini tier
+- Languages other than English
+- Push notifications
+
+## Acceptance tests
+
+- [ ] The Gemini key is absent from the built client bundle and from every API response.
+- [ ] A new user cannot reach the Situation screen without accepting the disclosure.
+- [ ] Continue stays disabled on an empty situation and on text over 1,000 characters.
+- [ ] Next stays disabled until each required question is answered.
+- [ ] p1.harm = Yes shows p1.violence; p1.violence = Yes shows the Safety notice before Pillar 2.
+- [ ] p3.family = No skips p3.function; p4.accept = No shows p4.walkaway.
+- [ ] Going back in the interviewer keeps earlier answers.
+- [ ] A result shows four pillar reads, marks non-applicable pillars, and ends by handing the decision back.
+- [ ] Malformed Gemini output retries once, then shows an error; the usage count does not change.
+- [ ] The sixth analysis in a day (default cap 5) is refused, and Home shows the reset time.
+- [ ] User A requesting User B's situation ID gets 404.
+- [ ] Deleting a situation removes its answers and result; deleting the account removes all of the user's rows.
+- [ ] The app installs as a PWA on iOS Safari and Android Chrome.
+
+## Open questions
+
+- [x] **Sign-in method.** Google sign-in (free, no email service needed) or email + password (needs password reset email). Recommended: Google sign-in.
+- [x] **Frontend framework.** Plain TypeScript + Vite, Preact, or Svelte. Constraint: small bundle, static output for Pages.
+- [ ] **Database.** Ratify D1, or use something else.
+- [ ] **Daily cap.** Is 5 analyses per user per day right for the beta?
+- [ ] **Saved situations.** The mockup's sidebar has no history link; this spec puts history under Profile. Confirm or add a sidebar item.
+- [ ] **Data retention.** Keep situations until the user deletes them, or auto-delete after a set period.
