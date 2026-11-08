@@ -400,6 +400,18 @@ route('POST', '/situations/:id/analyze', async (ctx) => {
     userPrompt: buildUserPrompt(row.text, answers, row.bank_version),
     fetchImpl: ctx.deps.fetch,
   });
+  // Diagnostics only: outcome, upstream status and timing. Never situation text or the key.
+  console.log(
+    JSON.stringify({
+      event: 'gemini_call',
+      model,
+      ok: outcome.ok,
+      reason: outcome.ok ? undefined : outcome.reason,
+      httpStatus: outcome.httpStatus,
+      ms: outcome.ms,
+      attempts: outcome.attempts,
+    }),
+  );
 
   if (!outcome.ok) {
     switch (outcome.reason) {

@@ -8,6 +8,10 @@ directory = "./dist"
 binding = "ASSETS"
 run_worker_first = ["/api/*"]
 
+# Workers Logs: see why a read failed in the dashboard (Worker → Observability).
+[observability]
+enabled = true
+
 [vars]
 # Swap the Gemini model here without touching code.
 GEMINI_MODEL = "gemini-3.8-flash"
