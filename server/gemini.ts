@@ -13,6 +13,8 @@ export type GeminiOutcome = (
 export interface GeminiOptions {
   apiKey: string;
   model: string;
+  /** Sent as thinkingConfig.thinkingLevel only when set. */
+  thinkingLevel?: string;
   baseUrl?: string;
   systemPrompt: string;
   userPrompt: string;
@@ -41,10 +43,9 @@ async function callOnceInner(o: GeminiOptions): Promise<GeminiOutcome> {
         systemInstruction: { parts: [{ text: o.systemPrompt }] },
         contents: [{ role: 'user', parts: [{ text: o.userPrompt }] }],
         generationConfig: {
-          // Gemini 3 models: keep the default temperature (lower values can loop),
-          // and keep thinking short; this is a short structured answer.
-          // ('minimal' was rejected by gemini-3.8-flash in production; 'low' is accepted.)
-          thinkingConfig: { thinkingLevel: 'low' },
+          // Gemini 3 models: keep the default temperature (lower values can loop).
+          // Thinking level is optional; the model's default is used when unset.
+          ...(o.thinkingLevel ? { thinkingConfig: { thinkingLevel: o.thinkingLevel } } : {}),
           responseMimeType: 'application/json',
           responseSchema: RESULT_SCHEMA,
         },

@@ -11,18 +11,19 @@ export interface AnalysisResult {
   safety_flag: boolean;
 }
 
-/** Gemini structured-output schema (OpenAPI subset). */
+/**
+ * Gemini structured-output schema (OpenAPI subset). Kept lean on purpose:
+ * count/range rules are enforced by parseResult() below, with one retry.
+ */
 export const RESULT_SCHEMA = {
   type: 'OBJECT',
   properties: {
     pillars: {
       type: 'ARRAY',
-      minItems: 4,
-      maxItems: 4,
       items: {
         type: 'OBJECT',
         properties: {
-          pillar: { type: 'INTEGER', minimum: 1, maximum: 4 },
+          pillar: { type: 'INTEGER' },
           applies: { type: 'BOOLEAN' },
           read: { type: 'STRING' },
         },

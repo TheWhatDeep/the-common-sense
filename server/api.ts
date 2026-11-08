@@ -395,6 +395,7 @@ route('POST', '/situations/:id/analyze', async (ctx) => {
   const outcome = await analyzeWithGemini({
     apiKey: ctx.env.GEMINI_API_KEY,
     model,
+    thinkingLevel: ctx.env.GEMINI_THINKING_LEVEL || undefined,
     baseUrl: ctx.env.GEMINI_BASE_URL,
     systemPrompt: buildSystemPrompt(),
     userPrompt: buildUserPrompt(row.text, answers, row.bank_version),
