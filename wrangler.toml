@@ -11,8 +11,7 @@ GOOGLE_CLIENT_ID = ""
 [[d1_databases]]
 binding = "DB"
 database_name = "common-sense"
-# Replace with the id printed by `npx wrangler d1 create common-sense`.
-database_id = "00000000-0000-0000-0000-000000000000"
+database_id = "6bdf5221-9138-4769-ae11-347a37195edb"
 migrations_dir = "migrations"
 
 # Secret, set with: npx wrangler pages secret put GEMINI_API_KEY
