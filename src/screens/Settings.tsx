@@ -2,7 +2,7 @@ import { useState } from 'preact/hooks';
 import { api, ApiError } from '../api';
 import { ConfirmDialog } from '../components';
 import { BackIcon } from '../icons';
-import { navigate } from '../router';
+import { go } from '../router';
 import { DisclosureText } from './Disclosure';
 
 export function Settings(props: { onDeleted: () => void }) {
@@ -25,7 +25,7 @@ export function Settings(props: { onDeleted: () => void }) {
   return (
     <div class="screen">
       <header class="topbar">
-        <button class="icon-btn" aria-label="Back" onClick={() => navigate('/')}>
+        <button class="icon-btn" aria-label="Back" onClick={() => go('/')}>
           <BackIcon />
         </button>
         <span class="title">Settings</span>

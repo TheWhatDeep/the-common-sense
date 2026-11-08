@@ -12,6 +12,23 @@ export function navigate(path: string, opts: { replace?: boolean } = {}) {
   window.dispatchEvent(new HashChangeEvent('hashchange'));
 }
 
+const reducedMotion = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+
+/**
+ * Navigate with a short fade: the current screen fades out, then the next one
+ * fades in (every .screen plays an enter animation when it mounts).
+ */
+export function go(path: string, opts: { replace?: boolean } = {}) {
+  const root = document.documentElement;
+  if (reducedMotion() || root.classList.contains('leaving')) return navigate(path, opts);
+  root.classList.add('leaving');
+  setTimeout(() => {
+    navigate(path, opts);
+    // Let the next screen render before lifting the fade-out.
+    setTimeout(() => root.classList.remove('leaving'), 0);
+  }, 170);
+}
+
 export function usePath(): string {
   const [path, setPath] = useState(currentPath());
   useEffect(() => {

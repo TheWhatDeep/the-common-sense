@@ -11,6 +11,7 @@ import {
   needsSafetyNotice,
   pillarComplete,
   PILLAR_NAMES,
+  resumeStep,
   visibleQuestions,
   type Answers,
   type Question,
@@ -18,16 +19,14 @@ import {
 import { api, ApiError, type Situation } from '../api';
 import { Loading, SafetyNotice } from '../components';
 import { BackIcon, CloseIcon } from '../icons';
-import { navigate } from '../router';
+import { go, navigate } from '../router';
 
 /** Hands a just-created situation to the next route without refetching it. */
 export const situationCache = new Map<string, Situation>();
 
 /** Where to resume a saved draft: the first step that still needs an answer. */
-export function resumeStep(s: Pick<Situation, 'answers' | 'bankVersion'>): number {
-  const bank = getBank(s.bankVersion);
-  for (const p of [1, 2, 3, 4]) if (!pillarComplete(p, s.answers, bank)) return p + 1;
-  return 5;
+export function resumeStepFor(s: Pick<Situation, 'answers' | 'bankVersion'>): number {
+  return resumeStep(s.answers, getBank(s.bankVersion));
 }
 
 function Header(props: { step: number; onBack: () => void; onClose: () => void; backIsClose: boolean }) {
@@ -124,12 +123,12 @@ export function Interview(props: { id?: string; step: string }) {
     } catch {
       /* closing never blocks */
     }
-    navigate('/');
+    go('/');
   };
 
   // ---------- safety notice between Pillar 1 and Pillar 2 ----------
   if (props.step === 'safety' && situation)
-    return <SafetyNotice continueLabel="Continue to Pillar 2" onContinue={() => navigate(`/s/${situation.id}/3`)} />;
+    return <SafetyNotice continueLabel="Continue to Pillar 2" onContinue={() => go(`/s/${situation.id}/3`)} />;
 
   // ---------- step 1: the situation ----------
   if (props.step === '1') {
@@ -144,14 +143,14 @@ export function Interview(props: { id?: string; step: string }) {
         if (!s) {
           s = await api.createSituation(trimmed);
           situationCache.set(s.id, s);
-          navigate(`/s/${s.id}/2`, { replace: true });
+          go(`/s/${s.id}/2`, { replace: true });
           return;
         }
         if (trimmed !== s.text) {
           s = await api.updateText(s.id, trimmed);
           setSituation(s);
         }
-        navigate(`/s/${s.id}/2`);
+        go(`/s/${s.id}/2`);
       } catch (e) {
         setError(e instanceof ApiError ? e.message : 'Could not save. Try again.');
       } finally {
@@ -159,7 +158,7 @@ export function Interview(props: { id?: string; step: string }) {
       }
     };
     return (
-      <div class="screen">
+      <div class="screen" key="step-1">
         <Header step={1} backIsClose onBack={close} onClose={close} />
         <main class="main" style={{ gap: '20px', paddingTop: '28px' }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -216,7 +215,7 @@ export function Interview(props: { id?: string; step: string }) {
 
   const back = async () => {
     await persist();
-    navigate(`/s/${situation.id}/${step - 1}`);
+    go(`/s/${situation.id}/${step - 1}`);
   };
 
   const next = async () => {
@@ -224,15 +223,15 @@ export function Interview(props: { id?: string; step: string }) {
     const ok = await persist();
     setSaving(false);
     if (!ok) return;
-    if (pillar === 1 && needsSafetyNotice(answers, bank)) return navigate(`/s/${situation.id}/safety`);
-    if (isLast) return navigate(`/s/${situation.id}/read`);
-    navigate(`/s/${situation.id}/${step + 1}`);
+    if (pillar === 1 && needsSafetyNotice(answers, bank)) return go(`/s/${situation.id}/safety`);
+    if (isLast) return go(`/s/${situation.id}/read`);
+    go(`/s/${situation.id}/${step + 1}`);
   };
 
   const notesOver = questions.some((q) => (answers[q.id]?.note?.length ?? 0) > CONFIG.noteMaxChars || (q.kind === 'text' && (answers[q.id]?.value.length ?? 0) > CONFIG.noteMaxChars));
 
   return (
-    <div class="screen">
+    <div class="screen" key={`step-${step}`}>
       <Header step={step} backIsClose={false} onBack={back} onClose={close} />
       <main class="main">
         <span class="chip">

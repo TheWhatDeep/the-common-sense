@@ -2,7 +2,8 @@ import { useEffect, useState } from 'preact/hooks';
 import { api, ApiError, type Me, type SituationSummary } from '../api';
 import { ConfirmDialog, formatDate, initials } from '../components';
 import { BackIcon, TrashIcon } from '../icons';
-import { navigate } from '../router';
+import { go } from '../router';
+import { openSituation } from '../SituationCard';
 
 const STATUS_LABEL = { draft: 'Draft', answered: 'Ready for a read', analyzed: 'Read' } as const;
 
@@ -20,10 +21,6 @@ export function Profile(props: { me: Me }) {
       .catch((e) => setError(e instanceof ApiError ? e.message : 'Could not load your situations.'));
   }, []);
 
-  const open = (s: SituationSummary) => {
-    if (s.status === 'analyzed' || s.status === 'answered') navigate(`/s/${s.id}/read`);
-    else navigate(`/s/${s.id}/resume`);
-  };
 
   const doDelete = async () => {
     if (!confirm) return;
@@ -43,7 +40,7 @@ export function Profile(props: { me: Me }) {
   return (
     <div class="screen">
       <header class="topbar">
-        <button class="icon-btn" aria-label="Back" onClick={() => navigate('/')}>
+        <button class="icon-btn" aria-label="Back" onClick={() => go('/')}>
           <BackIcon />
         </button>
         <span class="title">Profile</span>
@@ -60,13 +57,13 @@ export function Profile(props: { me: Me }) {
         </div>
 
         <section style={{ display: 'flex', flexDirection: 'column' }}>
-          <h2 class="section-label">Saved situations</h2>
+          <h2 class="section-label">All situations</h2>
           {error && <div class="error-box" role="alert">{error}</div>}
           {!items && !error && <div class="spinner" style={{ margin: '24px auto' }} />}
           {items && items.length === 0 && (
             <div class="empty">
               <p style={{ margin: 0 }}>No situations yet. Start one from the home screen.</p>
-              <button class="btn btn-primary" style={{ maxWidth: '260px' }} onClick={() => navigate('/new')}>
+              <button class="btn btn-primary" style={{ maxWidth: '260px' }} onClick={() => go('/new')}>
                 New situation
               </button>
             </div>
@@ -75,10 +72,10 @@ export function Profile(props: { me: Me }) {
             <ul class="list" style={{ listStyle: 'none', margin: 0, padding: 0 }}>
               {items.map((s) => (
                 <li class="item" key={s.id}>
-                  <button class="item-main" onClick={() => open(s)}>
+                  <button class="item-main" onClick={() => openSituation(s)}>
                     <span class="item-text">{s.text}</span>
                     <span class="item-meta">
-                      <span class={`badge ${s.status}`}>{STATUS_LABEL[s.status]}</span>
+                      {s.saved ? <span class="badge saved">Saved</span> : <span class={`badge ${s.status}`}>{STATUS_LABEL[s.status]}</span>}
                       {formatDate(s.createdAt)}
                     </span>
                   </button>

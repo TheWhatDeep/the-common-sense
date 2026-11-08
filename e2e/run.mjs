@@ -208,19 +208,30 @@ await check('p4.accept = No shows p4.walkaway', async () => {
   await nextBtn().click();
 });
 
+await check('while waiting, the thinking screen streams the model’s thought summaries', async () => {
+  await page.getByText('How the AI is thinking').waitFor({ timeout: 15_000 });
+  await page.locator('.thought-stream h3', { hasText: 'Checking for harm' }).waitFor({ timeout: 15_000 });
+  await shot('07b-thinking');
+  await page.locator('.thought-stream h3', { hasText: 'Weighing participation' }).waitFor({ timeout: 15_000 });
+});
+
 await check('a result shows four reads, marks non-applicable pillars and hands the decision back', async () => {
   await page.getByRole('heading', { name: 'The read' }).waitFor({ timeout: 30_000 });
+  await page.waitForTimeout(1200); // let the staggered entrance finish
   assert.equal(await page.locator('.read').count(), 4);
   assert.equal(await page.locator('.read.na').count(), 1);
   assert.ok(await page.getByText('Doesn’t apply', { exact: true }).isVisible());
   assert.match(await page.locator('.bottom-line p').textContent(), /your call/);
   assert.ok(await page.getByText('You make the decision.').isVisible());
   await shot('08-result');
-  await page.getByRole('button', { name: 'Save' }).click();
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
   await page.getByRole('status').waitFor();
+  await page.getByRole('button', { name: 'Saved ✓' }).waitFor();
   const last = mock.calls.at(-1);
+  assert.ok(last.url.includes(':streamGenerateContent'), 'uses the streaming endpoint');
+  assert.equal(last.config.thinkingConfig.includeThoughts, true);
   assert.equal(last.key, FAKE_KEY, 'key sent server-side as a header');
-  assert.ok(last.url.includes('/models/mock-flash:generateContent'));
+  assert.ok(last.url.includes('/models/mock-flash:'));
   assert.ok(last.prompt.includes('[p2.examined]') && last.prompt.includes('Note: I have thought about this for a week.'));
 });
 
@@ -245,6 +256,32 @@ await check('closing the interviewer keeps the situation as a draft', async () =
   await page.getByRole('button', { name: 'Start a new situation' }).waitFor();
   const list = await apiCall('GET', '/situations');
   assert.equal(list.body.situations[0].status, 'draft');
+});
+
+await check('the dashboard shows drafts and saved reads', async () => {
+  await page.goto(BASE + '/#/');
+  await page.getByRole('heading', { name: 'Pick up where you left off' }).waitFor();
+  await page.getByRole('heading', { name: 'Saved', exact: true }).waitFor();
+  assert.ok(await page.locator('.sit-card', { hasText: 'A coworker invited me' }).isVisible());
+  assert.ok(await page.locator('.sit-card .bl', { hasText: 'your call' }).first().isVisible());
+  await page.waitForTimeout(700);
+  await shot('11a-dashboard');
+  await page.locator('.sit-card', { hasText: 'My partner hit me' }).click();
+  await page.getByText('Pillar 2 · Intellectual Autonomy').waitFor(); // resumes at the right step
+});
+
+await check('the Pillars page explains the pillars and how to use them', async () => {
+  await page.goto(BASE + '/#/');
+  await page.getByRole('button', { name: 'Open menu' }).click();
+  await page.getByRole('button', { name: 'Pillars' }).click();
+  await page.getByRole('heading', { name: 'The Four Pillars of Respect' }).waitFor();
+  await page.getByRole('heading', { name: 'How to use them' }).waitFor();
+  await page.waitForTimeout(800);
+  await shot('15-pillars');
+  await page.locator('.pillar-card summary', { hasText: 'Familial Realism' }).click();
+  await page.getByText('The family exists for the child, not the other way around.', { exact: false }).first().waitFor();
+  await page.locator('.pillar-card[open]').scrollIntoViewIfNeeded();
+  await shot('15b-pillar-open');
 });
 
 await check('malformed Gemini output retries once, shows an error, and usage is unchanged', async () => {
@@ -310,7 +347,7 @@ await check("user A requesting user B's situation gets 404", async () => {
 
 await check('profile lists saved situations; deleting one removes its answers and result', async () => {
   await page.goto(BASE + '/#/profile');
-  await page.getByRole('heading', { name: 'Saved situations' }).waitFor();
+  await page.getByRole('heading', { name: 'All situations' }).waitFor();
   await page.locator('.item').first().waitFor();
   await shot('12-profile');
   const count = await page.locator('.item').count();

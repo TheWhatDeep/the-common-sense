@@ -4,7 +4,8 @@ import { Loading } from './components';
 import { match, navigate, usePath } from './router';
 import { Disclosure } from './screens/Disclosure';
 import { Home } from './screens/Home';
-import { Interview, resumeStep, situationCache } from './screens/Interview';
+import { Interview, resumeStepFor, situationCache } from './screens/Interview';
+import { Pillars } from './screens/Pillars';
 import { Profile } from './screens/Profile';
 import { Read } from './screens/Read';
 import { Settings } from './screens/Settings';
@@ -59,6 +60,7 @@ export function App() {
   if ((m = match('/s/:id/read', path))) return <Read key={m.id} id={m.id} onUsageChange={loadMe} />;
   if ((m = match('/s/:id/:step', path))) return <Interview key={m.id} id={m.id} step={m.step} />;
   if (path === '/profile') return <Profile me={me} />;
+  if (path === '/pillars') return <Pillars />;
   if (path === '/settings')
     return <Settings onDeleted={() => (situationCache.clear(), setAuth({ kind: 'signed-out' }), navigate('/', { replace: true }))} />;
   if (path !== '/') navigate('/', { replace: true });
@@ -72,7 +74,7 @@ function Resume(props: { id: string }) {
       .getSituation(props.id)
       .then((s) => {
         situationCache.set(s.id, s);
-        navigate(`/s/${s.id}/${resumeStep(s)}`, { replace: true });
+        navigate(`/s/${s.id}/${resumeStepFor(s)}`, { replace: true });
       })
       .catch(() => navigate('/profile', { replace: true }));
   }, [props.id]);

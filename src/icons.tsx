@@ -63,3 +63,14 @@ export const PillarsMark = () => (
     <path d="M6 10v7" /><path d="M10 10v7" /><path d="M14 10v7" /><path d="M18 10v7" />
   </svg>
 );
+export const PillarsIcon = () => (
+  <svg width="20" height="20" {...base}>
+    <path d="M3 20h18" /><path d="M4 8h16" /><path d="M12 3l8 5H4z" />
+    <path d="M6.5 11v6" /><path d="M10.5 11v6" /><path d="M13.5 11v6" /><path d="M17.5 11v6" />
+  </svg>
+);
+export const ChevronDownIcon = () => (
+  <svg width="20" height="20" {...base}>
+    <path d="M6 9l6 6 6-6" />
+  </svg>
+);

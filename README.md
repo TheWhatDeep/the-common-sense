@@ -106,7 +106,7 @@ npm run deploy
 
 **Google sign-in:** create an OAuth client (Google Cloud Console → Google Auth Platform → Clients → Web application). Add the Worker's address (e.g. `https://the-common-sense.<your-subdomain>.workers.dev`) and `http://localhost:8788` as **Authorized JavaScript origins**, then put the Client ID in `GOOGLE_CLIENT_ID` in `wrangler.toml`. It is public, not a secret.
 
-**Later schema changes:** the first schema was created by hand in the D1 console, so before the first `wrangler d1 migrations apply --remote`, record `0001_init.sql` as applied, or wrangler will try to create the tables again.
+**Schema changes:** production tables were created by hand in the D1 console (`0001_init.sql`, then `0002_saved.sql`). Before the first `wrangler d1 migrations apply --remote`, record those as applied, or wrangler will try to run them again.
 
 To change the Gemini model, edit `GEMINI_MODEL` in `wrangler.toml`. To change the daily cap or limits, edit `shared/config.ts`.
 
@@ -116,7 +116,10 @@ To change the Gemini model, edit `GEMINI_MODEL` in `wrangler.toml`. To change th
 - **Sign-in:** Google sign-in, as the spec recommended. `users` gains a `google_sub` column to identify the Google account.
 - **Sessions:** the cookie holds a random token; the database stores only its SHA-256 hash, so a database leak can't be replayed as logins.
 - **Editing the situation text:** going back to step 1 needs `PATCH /api/situations/:id`, which the spec's endpoint table didn't list.
-- **Save button:** every situation and result is saved automatically, so **Save** confirms that and points to Profile.
+- **Save button:** every situation and result is kept automatically; **Save** bookmarks a read so it appears under **Saved** on the dashboard (`situations.saved_at`, migration 0002).
+- **Dashboard:** Home shows drafts (resuming at the right step), saved reads and recent reads. History with delete lives under Profile.
+- **Live thinking:** analysis streams from Gemini (`streamGenerateContent` with thought summaries). The waiting screen shows the model's working notes; the timeout is 30 s of silence plus a 2-minute cap, instead of 20 s total. Thought text is shown, never stored or logged.
+- **Pillars page:** a guide to the framework, from the sidebar. Its text mirrors `docs/four-pillars-of-respect.md`.
 - **Disclosure timing:** shown straight after the first sign-in, before Home.
 - **History:** lives under Profile, per the spec; the sidebar matches the mockup.
 - **Notes:** each choice question has an optional "+ Add a note" link (300 characters), shown once the question is answered.

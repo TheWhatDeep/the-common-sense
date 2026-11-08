@@ -20,6 +20,7 @@ export interface Situation {
   id: string;
   text: string;
   status: Status;
+  saved: boolean;
   bankVersion: number;
   createdAt: string;
   updatedAt: string;
@@ -31,6 +32,10 @@ export interface SituationSummary {
   id: string;
   text: string;
   status: Status;
+  saved: boolean;
+  savedAt: string | null;
+  /** For drafts: the interview step (2-5) to resume at. */
+  step: number | null;
   createdAt: string;
   updatedAt: string;
   bottomLine: string | null;
@@ -84,5 +89,59 @@ export const api = {
   saveAnswers: (id: string, answers: Answers) => request<Situation>('PUT', `/situations/${id}/answers`, { answers }),
   // Server waits up to 30 s per Gemini call and may retry once on bad output.
   analyze: (id: string) => request<Situation>('POST', `/situations/${id}/analyze`, undefined, 70_000),
+  setSaved: (id: string, saved: boolean) => request<Situation>('PUT', `/situations/${id}/saved`, { saved }),
   deleteSituation: (id: string) => request<{ ok: true }>('DELETE', `/situations/${id}`),
 };
+
+/**
+ * Runs the analysis as a stream: thought summaries arrive through onThought
+ * while Gemini works, then the stored situation (with its result) is returned.
+ * The server enforces the timeouts; this only fails if the connection drops.
+ */
+export async function analyzeStream(
+  id: string,
+  handlers: { onThought?: (text: string) => void; onRetry?: () => void },
+): Promise<Situation> {
+  let res: Response;
+  try {
+    res = await fetch(`/api/situations/${id}/analyze`, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { accept: 'text/event-stream' },
+    });
+  } catch {
+    throw new ApiError(0, 'offline', "Can't reach the server. Check your connection.");
+  }
+  const type = res.headers.get('content-type') ?? '';
+  if (!type.includes('text/event-stream')) {
+    const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    if (!res.ok) throw new ApiError(res.status, String(data.error ?? 'error'), String(data.message ?? 'Something went wrong.'), data);
+    return data as unknown as Situation; // already analyzed
+  }
+
+  const reader = res.body!.pipeThrough(new TextDecoderStream()).getReader();
+  let buffer = '';
+  for (;;) {
+    let chunk: ReadableStreamReadResult<string>;
+    try {
+      chunk = await reader.read();
+    } catch {
+      break;
+    }
+    if (chunk.done) break;
+    buffer += chunk.value;
+    const blocks = buffer.split('\n\n');
+    buffer = blocks.pop() ?? '';
+    for (const block of blocks) {
+      const event = /^event: (.*)$/m.exec(block)?.[1];
+      const raw = /^data: (.*)$/m.exec(block)?.[1];
+      if (!event || raw === undefined) continue;
+      const data = JSON.parse(raw);
+      if (event === 'thought') handlers.onThought?.(data.text);
+      else if (event === 'retry') handlers.onRetry?.();
+      else if (event === 'result') return data as Situation;
+      else if (event === 'error') throw new ApiError(data.status ?? 500, data.error ?? 'error', data.message ?? 'Something went wrong.', data);
+    }
+  }
+  throw new ApiError(0, 'connection_lost', 'The connection dropped. If the read finished, it’s saved; try again to see it.');
+}
