@@ -8,6 +8,13 @@ directory = "./dist"
 binding = "ASSETS"
 run_worker_first = ["/api/*"]
 
+# Run the Worker next to Google Cloud's Singapore region, every time.
+# Without this, Cloudflare sometimes ran it in Hong Kong, where the Gemini API
+# refuses requests ("User location is not supported for the API use").
+# Static files are still served from the nearest data center.
+[placement]
+region = "gcp:asia-southeast1"
+
 # Workers Logs: see why a read failed in the dashboard (Worker → Observability).
 [observability]
 enabled = true
