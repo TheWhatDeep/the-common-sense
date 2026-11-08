@@ -264,6 +264,23 @@ describe('analyze', () => {
     expect(geminiCalls).toHaveLength(1);
   });
 
+  it('a rejected request (HTTP 400) is a retryable error, not counted', async () => {
+    const cookie = await signIn('a@x.com');
+    const id = await answeredSituation(cookie);
+    queue.push(
+      () =>
+        new Response(JSON.stringify({ error: { status: 'INVALID_ARGUMENT', message: 'Invalid value at thinking_level' } }), {
+          status: 400,
+        }),
+    );
+    const res = await call('POST', `/situations/${id}/analyze`, { cookie });
+    expect(res.status).toBe(502);
+    expect(((await res.json()) as { error: string }).error).toBe('upstream_error');
+    expect(geminiCalls).toHaveLength(1);
+    const me = (await (await call('GET', '/me', { cookie })).json()) as { usage: { used: number } };
+    expect(me.usage.used).toBe(0);
+  });
+
   it('a timeout returns a retryable error', async () => {
     const cookie = await signIn('a@x.com');
     const id = await answeredSituation(cookie);

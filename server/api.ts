@@ -408,6 +408,7 @@ route('POST', '/situations/:id/analyze', async (ctx) => {
       ok: outcome.ok,
       reason: outcome.ok ? undefined : outcome.reason,
       httpStatus: outcome.httpStatus,
+      detail: outcome.detail,
       ms: outcome.ms,
       attempts: outcome.attempts,
     }),

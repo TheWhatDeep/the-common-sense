@@ -8,7 +8,7 @@ import { parseResult, RESULT_SCHEMA, type AnalysisResult } from '../shared/resul
 export type GeminiOutcome = (
   | { ok: true; result: AnalysisResult }
   | { ok: false; reason: 'invalid' | 'quota' | 'timeout' | 'blocked' | 'error' }
-) & { httpStatus?: number; ms?: number; attempts?: number };
+) & { httpStatus?: number; ms?: number; attempts?: number; detail?: string };
 
 export interface GeminiOptions {
   apiKey: string;
@@ -43,7 +43,8 @@ async function callOnceInner(o: GeminiOptions): Promise<GeminiOutcome> {
         generationConfig: {
           // Gemini 3 models: keep the default temperature (lower values can loop),
           // and keep thinking short; this is a short structured answer.
-          thinkingConfig: { thinkingLevel: 'minimal' },
+          // ('minimal' was rejected by gemini-3.8-flash in production; 'low' is accepted.)
+          thinkingConfig: { thinkingLevel: 'low' },
           responseMimeType: 'application/json',
           responseSchema: RESULT_SCHEMA,
         },
@@ -56,7 +57,7 @@ async function callOnceInner(o: GeminiOptions): Promise<GeminiOutcome> {
   }
 
   if (res.status === 429) return { ok: false, reason: 'quota', httpStatus: 429 };
-  if (!res.ok) return { ok: false, reason: 'error', httpStatus: res.status };
+  if (!res.ok) return { ok: false, reason: 'error', httpStatus: res.status, detail: await errorDetail(res) };
 
   let body: any;
   try {
@@ -76,6 +77,20 @@ async function callOnceInner(o: GeminiOptions): Promise<GeminiOutcome> {
     .join('');
   const result = parseResult(text);
   return result ? { ok: true, result } : { ok: false, reason: 'invalid' };
+}
+
+/**
+ * Google's error text for a rejected request (e.g. "Invalid value at
+ * 'generation_config.thinking_config'"). It describes the request's settings,
+ * not the user's text. Trimmed so a log line stays small.
+ */
+async function errorDetail(res: Response): Promise<string> {
+  try {
+    const body = (await res.json()) as { error?: { status?: string; message?: string } };
+    return `${body.error?.status ?? ''} ${body.error?.message ?? ''}`.trim().slice(0, 300);
+  } catch {
+    return '';
+  }
 }
 
 /** Calls Gemini; malformed output is retried exactly once. */
