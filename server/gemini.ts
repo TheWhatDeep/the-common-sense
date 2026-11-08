@@ -1,6 +1,11 @@
 /**
  * The one place the app talks to Gemini. The API key goes in a header and is
  * never logged, echoed or returned.
+ *
+ * Uses streamGenerateContent with thought summaries turned on, so the waiting
+ * screen can show what the model is working through. Because data keeps
+ * arriving, the timeout is an *idle* timeout (no data for N seconds), plus a
+ * hard total cap.
  */
 import { CONFIG } from '../shared/config';
 import { parseResult, RESULT_SCHEMA, type AnalysisResult } from '../shared/result';
@@ -8,7 +13,7 @@ import { parseResult, RESULT_SCHEMA, type AnalysisResult } from '../shared/resul
 export type GeminiOutcome = (
   | { ok: true; result: AnalysisResult }
   | { ok: false; reason: 'invalid' | 'quota' | 'timeout' | 'blocked' | 'error' }
-) & { httpStatus?: number; ms?: number; attempts?: number; detail?: string };
+) & { httpStatus?: number; ms?: number; attempts?: number; detail?: string; thoughtChars?: number };
 
 export interface GeminiOptions {
   apiKey: string;
@@ -19,24 +24,50 @@ export interface GeminiOptions {
   systemPrompt: string;
   userPrompt: string;
   fetchImpl?: typeof fetch;
-  timeoutMs?: number;
+  /** Give up when nothing arrives for this long. */
+  idleTimeoutMs?: number;
+  /** Give up after this long no matter what. */
+  totalTimeoutMs?: number;
+  /** Called with each piece of thought-summary text as it streams in. */
+  onThought?: (text: string) => void;
+  /** Called before the second attempt when the first answer was malformed. */
+  onRetry?: () => void;
 }
 
 const BLOCK_FINISH = new Set(['SAFETY', 'PROHIBITED_CONTENT', 'BLOCKLIST', 'SPII', 'RECITATION', 'IMAGE_SAFETY']);
 
-async function callOnce(o: GeminiOptions): Promise<GeminiOutcome> {
-  const started = Date.now();
-  const out = await callOnceInner(o);
-  return { ...out, ms: Date.now() - started };
+interface Part {
+  text?: string;
+  thought?: boolean;
+}
+interface Chunk {
+  promptFeedback?: { blockReason?: string };
+  candidates?: { content?: { parts?: Part[] }; finishReason?: string }[];
 }
 
-async function callOnceInner(o: GeminiOptions): Promise<GeminiOutcome> {
+async function streamOnce(o: GeminiOptions): Promise<GeminiOutcome> {
+  const started = Date.now();
   const base = (o.baseUrl || 'https://generativelanguage.googleapis.com').replace(/\/$/, '');
-  const url = `${base}/v1beta/models/${encodeURIComponent(o.model)}:generateContent`;
+  const url = `${base}/v1beta/models/${encodeURIComponent(o.model)}:streamGenerateContent?alt=sse`;
   const doFetch = o.fetchImpl ?? fetch;
-  let res: Response;
+  const idleMs = o.idleTimeoutMs ?? CONFIG.geminiIdleTimeoutMs;
+  const ctrl = new AbortController();
+  let idle = setTimeout(() => ctrl.abort(), idleMs);
+  const total = setTimeout(() => ctrl.abort(), o.totalTimeoutMs ?? CONFIG.geminiTotalTimeoutMs);
+  const bump = () => {
+    clearTimeout(idle);
+    idle = setTimeout(() => ctrl.abort(), idleMs);
+  };
+  const done = (out: GeminiOutcome): GeminiOutcome => {
+    clearTimeout(idle);
+    clearTimeout(total);
+    return { ...out, ms: Date.now() - started };
+  };
+
+  let answer = '';
+  let thoughtChars = 0;
   try {
-    res = await doFetch(url, {
+    const res = await doFetch(url, {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-goog-api-key': o.apiKey },
       body: JSON.stringify({
@@ -44,40 +75,65 @@ async function callOnceInner(o: GeminiOptions): Promise<GeminiOutcome> {
         contents: [{ role: 'user', parts: [{ text: o.userPrompt }] }],
         generationConfig: {
           // Gemini 3 models: keep the default temperature (lower values can loop).
-          // Thinking level is optional; the model's default is used when unset.
-          ...(o.thinkingLevel ? { thinkingConfig: { thinkingLevel: o.thinkingLevel } } : {}),
+          thinkingConfig: { includeThoughts: true, ...(o.thinkingLevel ? { thinkingLevel: o.thinkingLevel } : {}) },
           responseMimeType: 'application/json',
           responseSchema: RESULT_SCHEMA,
         },
       }),
-      signal: AbortSignal.timeout(o.timeoutMs ?? CONFIG.geminiTimeoutMs),
+      signal: ctrl.signal,
     });
+    bump();
+    if (res.status === 429) return done({ ok: false, reason: 'quota', httpStatus: 429 });
+    if (!res.ok) return done({ ok: false, reason: 'error', httpStatus: res.status, detail: await errorDetail(res) });
+    if (!res.body) return done({ ok: false, reason: 'invalid' });
+
+    const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
+    let buffer = '';
+    let blocked = false;
+    const handle = (ev: string) => {
+      const data = ev
+        .split(/\r?\n/)
+        .filter((l) => l.startsWith('data:'))
+        .map((l) => l.slice(5).trimStart())
+        .join('\n');
+      if (!data) return;
+      let chunk: Chunk;
+      try {
+        chunk = JSON.parse(data);
+      } catch {
+        return;
+      }
+      if (chunk.promptFeedback?.blockReason) blocked = true;
+      const cand = chunk.candidates?.[0];
+      if (cand?.finishReason && BLOCK_FINISH.has(cand.finishReason)) blocked = true;
+      for (const p of cand?.content?.parts ?? []) {
+        if (!p.text) continue;
+        if (p.thought) {
+          thoughtChars += p.text.length;
+          o.onThought?.(p.text);
+        } else answer += p.text;
+      }
+    };
+    for (;;) {
+      const { value, done: finished } = await reader.read();
+      if (finished) break;
+      bump();
+      buffer += value;
+      // Server-sent events are separated by a blank line.
+      const events = buffer.split(/\r?\n\r?\n/);
+      buffer = events.pop() ?? '';
+      events.forEach(handle);
+    }
+    if (buffer.trim()) handle(buffer);
+    if (blocked) return done({ ok: false, reason: 'blocked', thoughtChars });
   } catch (err) {
     const name = (err as Error)?.name;
-    return { ok: false, reason: name === 'TimeoutError' || name === 'AbortError' ? 'timeout' : 'error' };
+    const timedOut = ctrl.signal.aborted || name === 'TimeoutError' || name === 'AbortError';
+    return done({ ok: false, reason: timedOut ? 'timeout' : 'error', thoughtChars });
   }
 
-  if (res.status === 429) return { ok: false, reason: 'quota', httpStatus: 429 };
-  if (!res.ok) return { ok: false, reason: 'error', httpStatus: res.status, detail: await errorDetail(res) };
-
-  let body: any;
-  try {
-    body = await res.json();
-  } catch {
-    return { ok: false, reason: 'invalid' };
-  }
-  if (body?.promptFeedback?.blockReason) return { ok: false, reason: 'blocked' };
-  const candidate = body?.candidates?.[0];
-  if (!candidate) return { ok: false, reason: 'blocked' };
-  if (BLOCK_FINISH.has(candidate.finishReason)) return { ok: false, reason: 'blocked' };
-
-  // Skip any thought-summary parts; only the answer parts hold the JSON.
-  const text = (candidate.content?.parts ?? [])
-    .filter((p: { thought?: boolean }) => !p.thought)
-    .map((p: { text?: string }) => p.text ?? '')
-    .join('');
-  const result = parseResult(text);
-  return result ? { ok: true, result } : { ok: false, reason: 'invalid' };
+  const result = parseResult(answer);
+  return done(result ? { ok: true, result, thoughtChars } : { ok: false, reason: 'invalid', thoughtChars });
 }
 
 /**
@@ -96,8 +152,9 @@ async function errorDetail(res: Response): Promise<string> {
 
 /** Calls Gemini; malformed output is retried exactly once. */
 export async function analyzeWithGemini(o: GeminiOptions): Promise<GeminiOutcome> {
-  const first = await callOnce(o);
+  const first = await streamOnce(o);
   if (first.ok || first.reason !== 'invalid') return { ...first, attempts: 1 };
-  const second = await callOnce(o);
+  o.onRetry?.();
+  const second = await streamOnce(o);
   return { ...second, attempts: 2, ms: (first.ms ?? 0) + (second.ms ?? 0) };
 }

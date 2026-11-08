@@ -4,6 +4,7 @@ import {
   interviewComplete,
   needsSafetyNotice,
   pillarComplete,
+  resumeStep,
   visibleQuestions,
 } from '../shared/questionBank';
 
@@ -89,5 +90,12 @@ describe('cleanAnswers', () => {
   it('drops an empty optional text answer', () => {
     const r = cleanAnswers({ 'p2.change': { value: '   ' } });
     expect(r.ok && r.answers).toEqual({});
+  });
+});
+
+describe('resumeStep', () => {
+  it('points at the first unfinished pillar', () => {
+    expect(resumeStep({})).toBe(2);
+    expect(resumeStep({ 'p1.harm': { value: 'no' }, 'p1.participate': { value: 'present' } })).toBe(3);
   });
 });

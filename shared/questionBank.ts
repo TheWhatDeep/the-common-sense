@@ -247,3 +247,9 @@ export function cleanAnswers(input: unknown, bank: Question[] = getBank(BANK_VER
 export function optionLabel(q: Question, value: string): string {
   return q.kind === 'choice' ? (q.options!.find((o) => o.value === value)?.label ?? value) : value;
 }
+
+/** Where to resume a draft: the step (2-5) of the first pillar still missing an answer; 5 when complete. */
+export function resumeStep(answers: Answers, bank?: Question[]): number {
+  for (const p of [1, 2, 3, 4]) if (!pillarComplete(p, answers, bank)) return p + 1;
+  return 5;
+}

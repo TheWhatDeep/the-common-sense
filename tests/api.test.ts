@@ -28,13 +28,23 @@ const COMPLETE = {
   'p4.accept': { value: 'yes' },
 };
 
-function geminiReply(payload: unknown, init: ResponseInit = {}) {
-  const text = typeof payload === 'string' ? payload : JSON.stringify(payload);
-  return new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text }] }, finishReason: 'STOP' }] }), {
+/** A Gemini streamGenerateContent (SSE) reply: one thought-summary chunk, then the answer. */
+function sse(chunks: unknown[], init: ResponseInit = {}) {
+  return new Response(chunks.map((c) => `data: ${JSON.stringify(c)}\r\n\r\n`).join(''), {
     status: 200,
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'text/event-stream' },
     ...init,
   });
+}
+
+function geminiReply(payload: unknown) {
+  const text = typeof payload === 'string' ? payload : JSON.stringify(payload);
+  const half = Math.floor(text.length / 2);
+  return sse([
+    { candidates: [{ content: { parts: [{ text: '**Weighing harm**\nNo violence described.', thought: true }] } }] },
+    { candidates: [{ content: { parts: [{ text: text.slice(0, half) }] } }] },
+    { candidates: [{ content: { parts: [{ text: text.slice(half) }] }, finishReason: 'STOP' }] },
+  ]);
 }
 
 let env: Env;
@@ -218,13 +228,14 @@ describe('analyze', () => {
 
     // The prompt carries the situation and labelled answers; the key goes only in the header.
     const sent = geminiCalls[0];
-    expect(sent.url).toContain('/models/test-model:generateContent');
+    expect(sent.url).toContain('/models/test-model:streamGenerateContent?alt=sse');
     expect(sent.url).not.toContain(KEY);
     expect((sent.init.headers as Record<string, string>)['x-goog-api-key']).toBe(KEY);
     const prompt = JSON.parse(String(sent.init.body));
     expect(prompt.contents[0].parts[0].text).toContain('[p1.participate]');
     expect(prompt.contents[0].parts[0].text).toContain('Note: Just attending');
     expect(prompt.generationConfig.responseMimeType).toBe('application/json');
+    expect(prompt.generationConfig.thinkingConfig.includeThoughts).toBe(true);
 
     const me = (await (await call('GET', '/me', { cookie })).json()) as { usage: { used: number } };
     expect(me.usage.used).toBe(1);
@@ -293,7 +304,7 @@ describe('analyze', () => {
   it('blocked content keeps the situation as a draft', async () => {
     const cookie = await signIn('a@x.com');
     const id = await answeredSituation(cookie);
-    queue.push(() => new Response(JSON.stringify({ promptFeedback: { blockReason: 'SAFETY' } }), { status: 200 }));
+    queue.push(() => sse([{ promptFeedback: { blockReason: 'SAFETY' } }]));
     expect((await call('POST', `/situations/${id}/analyze`, { cookie })).status).toBe(422);
     const s = (await (await call('GET', `/situations/${id}`, { cookie })).json()) as { status: string };
     expect(s.status).toBe('draft');
@@ -344,6 +355,118 @@ describe('analyze', () => {
       }),
     );
     for (const b of bodies) expect(b).not.toContain(KEY);
+  });
+});
+
+async function readEvents(res: Response) {
+  const text = await res.text();
+  return text
+    .split('\n\n')
+    .filter(Boolean)
+    .map((block) => {
+      const event = /^event: (.*)$/m.exec(block)?.[1];
+      const data = JSON.parse(/^data: (.*)$/m.exec(block)?.[1] ?? 'null');
+      return { event, data };
+    });
+}
+
+function callStream(path: string, cookie: string) {
+  const req = new Request(BASE + '/api' + path, {
+    method: 'POST',
+    headers: { origin: BASE, cookie, accept: 'text/event-stream' },
+  });
+  return handle(req, env, { fetch: fakeFetch, now: () => now });
+}
+
+describe('streaming analyze', () => {
+  it('streams thought summaries, then the stored result', async () => {
+    const cookie = await signIn('a@x.com');
+    const id = await answeredSituation(cookie);
+    queue.push(() => geminiReply(GOOD));
+    const res = await callStream(`/situations/${id}/analyze`, cookie);
+    expect(res.headers.get('content-type')).toContain('text/event-stream');
+    const events = await readEvents(res);
+    expect(events.map((e) => e.event)).toEqual(['start', 'thought', 'result']);
+    expect(events[1].data.text).toContain('Weighing harm');
+    expect(events[2].data.status).toBe('analyzed');
+    expect(events[2].data.result.pillars).toHaveLength(4);
+    const me = (await (await call('GET', '/me', { cookie })).json()) as { usage: { used: number } };
+    expect(me.usage.used).toBe(1);
+  });
+
+  it('reports a retry, then an error event, without counting usage', async () => {
+    const cookie = await signIn('a@x.com');
+    const id = await answeredSituation(cookie);
+    queue.push(() => geminiReply('nope'), () => geminiReply('still nope'));
+    const events = await readEvents(await callStream(`/situations/${id}/analyze`, cookie));
+    expect(events.map((e) => e.event)).toEqual(['start', 'thought', 'retry', 'thought', 'error']);
+    expect(events.at(-1)!.data.error).toBe('invalid_output');
+    const me = (await (await call('GET', '/me', { cookie })).json()) as { usage: { used: number } };
+    expect(me.usage.used).toBe(0);
+  });
+
+  it('checks that fail before Gemini is called come back as plain JSON', async () => {
+    const cookie = await signIn('a@x.com');
+    const { id } = (await (await call('POST', '/situations', { cookie, body: { text: 'hi' } })).json()) as { id: string };
+    const res = await callStream(`/situations/${id}/analyze`, cookie);
+    expect(res.status).toBe(409);
+    expect(res.headers.get('content-type')).toContain('application/json');
+  });
+
+  it('never sends the key or the thoughts to the logs', async () => {
+    const cookie = await signIn('a@x.com');
+    const id = await answeredSituation(cookie);
+    queue.push(() => geminiReply(GOOD));
+    const lines: string[] = [];
+    const orig = console.log;
+    console.log = (...a: unknown[]) => lines.push(a.join(' '));
+    try {
+      await readEvents(await callStream(`/situations/${id}/analyze`, cookie));
+    } finally {
+      console.log = orig;
+    }
+    const all = lines.join('\n');
+    expect(all).toContain('gemini_call');
+    expect(all).not.toContain(KEY);
+    expect(all).not.toContain('Weighing harm');
+    expect(all).not.toContain('coworker');
+  });
+});
+
+describe('saved reads and the dashboard list', () => {
+  it('saves and unsaves a finished read, and refuses drafts', async () => {
+    const cookie = await signIn('a@x.com');
+    const draft = (await (await call('POST', '/situations', { cookie, body: { text: 'draft' } })).json()) as { id: string };
+    expect((await call('PUT', `/situations/${draft.id}/saved`, { cookie, body: { saved: true } })).status).toBe(409);
+
+    const id = await answeredSituation(cookie);
+    queue.push(() => geminiReply(GOOD));
+    await call('POST', `/situations/${id}/analyze`, { cookie });
+    const saved = await call('PUT', `/situations/${id}/saved`, { cookie, body: { saved: true } });
+    expect(((await saved.json()) as { saved: boolean }).saved).toBe(true);
+    let list = (await (await call('GET', '/situations', { cookie })).json()) as { situations: { id: string; saved: boolean }[] };
+    expect(list.situations.find((s) => s.id === id)!.saved).toBe(true);
+    await call('PUT', `/situations/${id}/saved`, { cookie, body: { saved: false } });
+    list = (await (await call('GET', '/situations', { cookie })).json()) as { situations: { id: string; saved: boolean }[] };
+    expect(list.situations.find((s) => s.id === id)!.saved).toBe(false);
+  });
+
+  it("another user's situation can't be saved (404)", async () => {
+    const a = await signIn('a@x.com');
+    const b = await signIn('b@x.com');
+    const id = await answeredSituation(b);
+    expect((await call('PUT', `/situations/${id}/saved`, { cookie: a, body: { saved: true } })).status).toBe(404);
+  });
+
+  it('tells the dashboard which step a draft resumes at', async () => {
+    const cookie = await signIn('a@x.com');
+    const { id } = (await (await call('POST', '/situations', { cookie, body: { text: 'hi' } })).json()) as { id: string };
+    await call('PUT', `/situations/${id}/answers`, {
+      cookie,
+      body: { answers: { 'p1.harm': { value: 'no' }, 'p1.participate': { value: 'present' } } },
+    });
+    const list = (await (await call('GET', '/situations', { cookie })).json()) as { situations: { step: number }[] };
+    expect(list.situations[0].step).toBe(3);
   });
 });
 

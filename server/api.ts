@@ -11,11 +11,12 @@ import {
   cleanAnswers,
   getBank,
   interviewComplete,
+  resumeStep,
   type Answers,
 } from '../shared/questionBank';
 import { parseResult, type AnalysisResult } from '../shared/result';
 import { nextReset, usageDate } from './dates';
-import { analyzeWithGemini } from './gemini';
+import { analyzeWithGemini, type GeminiOutcome } from './gemini';
 import { verifyGoogleIdToken } from './google';
 import { HttpError, errorResponse, json, newId, randomToken, readJson, sha256, type Env } from './http';
 import { buildSystemPrompt, buildUserPrompt } from './prompt';
@@ -23,6 +24,8 @@ import { buildSystemPrompt, buildUserPrompt } from './prompt';
 export interface Deps {
   fetch?: typeof fetch;
   now?: () => Date;
+  /** Keeps the Worker alive to finish (and save) an analysis if the phone disconnects mid-stream. */
+  waitUntil?: (p: Promise<unknown>) => void;
 }
 
 const COOKIE = 'tcs_session';
@@ -49,6 +52,7 @@ interface SituationRow {
   text: string;
   status: 'draft' | 'answered' | 'analyzed';
   bank_version: number;
+  saved_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -207,6 +211,7 @@ async function situationPayload(ctx: Ctx, row: SituationRow) {
     id: row.id,
     text: row.text,
     status: row.status,
+    saved: !!row.saved_at,
     bankVersion: row.bank_version,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -317,17 +322,42 @@ route('POST', '/situations', async (ctx) => {
 route('GET', '/situations', async (ctx) => {
   const user = await requireUser(ctx);
   const { results } = await ctx.env.DB.prepare(
-    `SELECT s.id, s.text, s.status, s.created_at, s.updated_at, r.payload_json
+    `SELECT s.id, s.text, s.status, s.bank_version, s.saved_at, s.created_at, s.updated_at, r.payload_json
        FROM situations s LEFT JOIN results r ON r.situation_id = s.id
       WHERE s.user_id = ? ORDER BY s.created_at DESC`,
   )
     .bind(user.id)
-    .all<{ id: string; text: string; status: string; created_at: string; updated_at: string; payload_json: string | null }>();
+    .all<{
+      id: string;
+      text: string;
+      status: string;
+      bank_version: number;
+      saved_at: string | null;
+      created_at: string;
+      updated_at: string;
+      payload_json: string | null;
+    }>();
+  // Drafts need their answers to say which step to resume at.
+  const { results: draftAnswers } = await ctx.env.DB.prepare(
+    `SELECT a.situation_id, a.question_id, a.value FROM answers a JOIN situations s ON s.id = a.situation_id
+      WHERE s.user_id = ? AND s.status != 'analyzed'`,
+  )
+    .bind(user.id)
+    .all<{ situation_id: string; question_id: string; value: string }>();
+  const answersBySituation = new Map<string, Answers>();
+  for (const a of draftAnswers) {
+    const m = answersBySituation.get(a.situation_id) ?? {};
+    m[a.question_id] = { value: a.value };
+    answersBySituation.set(a.situation_id, m);
+  }
   return json({
     situations: results.map((r) => ({
       id: r.id,
       text: r.text,
       status: r.status,
+      saved: !!r.saved_at,
+      savedAt: r.saved_at,
+      step: r.status === 'analyzed' ? null : resumeStep(answersBySituation.get(r.id) ?? {}, getBank(r.bank_version)),
       createdAt: r.created_at,
       updatedAt: r.updated_at,
       bottomLine: r.payload_json ? (parseResult(r.payload_json)?.bottom_line ?? null) : null,
@@ -377,6 +407,27 @@ route('PUT', '/situations/:id/answers', async (ctx) => {
   return json(await situationPayload(ctx, await loadSituation(ctx, user.id, row.id)));
 });
 
+function outcomeError(outcome: GeminiOutcome & { ok: false }): HttpError {
+  switch (outcome.reason) {
+    case 'quota':
+      return new HttpError(503, 'busy', 'Busy right now, try again later.');
+    case 'timeout':
+      return new HttpError(504, 'timeout', 'That took too long. Try again.');
+    case 'blocked':
+      return new HttpError(422, 'blocked', "This one can't be analyzed. Your situation is saved as a draft.");
+    case 'invalid':
+      return new HttpError(502, 'invalid_output', 'The read came back garbled. Try again.');
+    default:
+      return new HttpError(502, 'upstream_error', 'Something went wrong. Try again.');
+  }
+}
+
+/**
+ * POST /situations/:id/analyze
+ * - Accept: text/event-stream → server-sent events: start, thought*, retry?, then result or error.
+ * - otherwise → one JSON response when done.
+ * Checks that fail before Gemini is called (404, 409, 429 daily limit…) are plain JSON either way.
+ */
 route('POST', '/situations/:id/analyze', async (ctx) => {
   const user = await requireUser(ctx);
   const row = await loadSituation(ctx, user.id, ctx.params.id);
@@ -391,63 +442,103 @@ route('POST', '/situations/:id/analyze', async (ctx) => {
     throw new HttpError(429, 'daily_limit', "You've used today's analyses.", { resetsAt: usage.resetsAt });
 
   if (!ctx.env.GEMINI_API_KEY) throw new HttpError(500, 'not_configured', 'The AI is not configured yet.');
+  const apiKey = ctx.env.GEMINI_API_KEY;
   const model = ctx.env.GEMINI_MODEL || CONFIG.defaultGeminiModel;
-  const outcome = await analyzeWithGemini({
-    apiKey: ctx.env.GEMINI_API_KEY,
-    model,
-    thinkingLevel: ctx.env.GEMINI_THINKING_LEVEL || undefined,
-    baseUrl: ctx.env.GEMINI_BASE_URL,
-    systemPrompt: buildSystemPrompt(),
-    userPrompt: buildUserPrompt(row.text, answers, row.bank_version),
-    fetchImpl: ctx.deps.fetch,
-  });
-  // Diagnostics only: outcome, upstream status and timing. Never situation text or the key.
-  console.log(
-    JSON.stringify({
-      event: 'gemini_call',
-      model,
-      ok: outcome.ok,
-      reason: outcome.ok ? undefined : outcome.reason,
-      httpStatus: outcome.httpStatus,
-      detail: outcome.detail,
-      ms: outcome.ms,
-      attempts: outcome.attempts,
-    }),
-  );
 
-  if (!outcome.ok) {
-    switch (outcome.reason) {
-      case 'quota':
-        throw new HttpError(503, 'busy', 'Busy right now, try again later.');
-      case 'timeout':
-        throw new HttpError(504, 'timeout', 'That took too long. Try again.');
-      case 'blocked':
+  const run = async (onThought?: (t: string) => void, onRetry?: () => void) => {
+    const outcome = await analyzeWithGemini({
+      apiKey,
+      model,
+      thinkingLevel: ctx.env.GEMINI_THINKING_LEVEL || undefined,
+      baseUrl: ctx.env.GEMINI_BASE_URL,
+      systemPrompt: buildSystemPrompt(),
+      userPrompt: buildUserPrompt(row.text, answers, row.bank_version),
+      fetchImpl: ctx.deps.fetch,
+      onThought,
+      onRetry,
+    });
+    // Diagnostics only: outcome, upstream status and timing. Never situation text, thoughts or the key.
+    console.log(
+      JSON.stringify({
+        event: 'gemini_call',
+        model,
+        ok: outcome.ok,
+        reason: outcome.ok ? undefined : outcome.reason,
+        httpStatus: outcome.httpStatus,
+        detail: outcome.detail,
+        ms: outcome.ms,
+        attempts: outcome.attempts,
+        thoughtChars: outcome.thoughtChars,
+      }),
+    );
+    if (!outcome.ok) {
+      if (outcome.reason === 'blocked')
         await ctx.env.DB.prepare("UPDATE situations SET status = 'draft', updated_at = ? WHERE id = ?")
           .bind(ctx.now.toISOString(), row.id)
           .run();
-        throw new HttpError(422, 'blocked', "This one can't be analyzed. Your situation is saved as a draft.");
-      case 'invalid':
-        throw new HttpError(502, 'invalid_output', 'The read came back garbled. Try again.');
-      default:
-        throw new HttpError(502, 'upstream_error', 'Something went wrong. Try again.');
+      throw outcomeError(outcome);
     }
-  }
+    const ts = ctx.now.toISOString();
+    const inserted = await ctx.env.DB.prepare(
+      'INSERT INTO results (id, situation_id, payload_json, model, created_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(situation_id) DO NOTHING',
+    )
+      .bind(newId(), row.id, JSON.stringify(outcome.result), model, ts)
+      .run();
+    // A parallel request already stored a result: return it and don't count this one twice.
+    if (inserted.meta.changes > 0) {
+      await ctx.env.DB.batch([
+        ctx.env.DB.prepare("UPDATE situations SET status = 'analyzed', updated_at = ? WHERE id = ?").bind(ts, row.id),
+        ctx.env.DB.prepare(
+          'INSERT INTO usage (user_id, date, count) VALUES (?, ?, 1) ON CONFLICT(user_id, date) DO UPDATE SET count = count + 1',
+        ).bind(user.id, usageDate(ctx.now)),
+      ]);
+    }
+    return situationPayload(ctx, await loadSituation(ctx, user.id, row.id));
+  };
 
-  const ts = ctx.now.toISOString();
-  const inserted = await ctx.env.DB.prepare(
-    'INSERT INTO results (id, situation_id, payload_json, model, created_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(situation_id) DO NOTHING',
-  )
-    .bind(newId(), row.id, JSON.stringify(outcome.result), model, ts)
+  if (!(ctx.request.headers.get('accept') ?? '').includes('text/event-stream')) return json(await run());
+
+  const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
+  const writer = writable.getWriter();
+  const encoder = new TextEncoder();
+  let open = true;
+  const send = (event: string, data: unknown) => {
+    if (!open) return;
+    writer.write(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)).catch(() => {
+      open = false; // the phone went away; keep going so the result is still saved
+    });
+  };
+  const task = (async () => {
+    send('start', { model });
+    try {
+      const situation = await run(
+        (text) => send('thought', { text }),
+        () => send('retry', {}),
+      );
+      send('result', situation);
+    } catch (err) {
+      const e = err instanceof HttpError ? err : new HttpError(500, 'server_error', 'Something went wrong.');
+      if (!(err instanceof HttpError)) console.error('api_error', 'analyze_stream', (err as Error)?.name);
+      send('error', { error: e.code, message: e.message, status: e.status, ...e.extra });
+    } finally {
+      if (open) await writer.close().catch(() => {});
+    }
+  })();
+  ctx.deps.waitUntil?.(task);
+  return new Response(readable, {
+    headers: { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-store, no-transform' },
+  });
+});
+
+/** Bookmark a read so it shows under Saved on the dashboard. */
+route('PUT', '/situations/:id/saved', async (ctx) => {
+  const user = await requireUser(ctx);
+  const row = await loadSituation(ctx, user.id, ctx.params.id);
+  if (row.status !== 'analyzed') throw new HttpError(409, 'not_analyzed', 'Only a finished read can be saved.');
+  const saved = (await readJson(ctx.request)).saved === true;
+  await ctx.env.DB.prepare('UPDATE situations SET saved_at = ? WHERE id = ? AND user_id = ?')
+    .bind(saved ? ctx.now.toISOString() : null, row.id, user.id)
     .run();
-  // A parallel request already stored a result: return it and don't count this one twice.
-  if (inserted.meta.changes > 0) {
-    await ctx.env.DB.batch([
-      ctx.env.DB.prepare("UPDATE situations SET status = 'analyzed', updated_at = ? WHERE id = ?").bind(ts, row.id),
-      ctx.env.DB.prepare(
-        'INSERT INTO usage (user_id, date, count) VALUES (?, ?, 1) ON CONFLICT(user_id, date) DO UPDATE SET count = count + 1',
-      ).bind(user.id, usageDate(ctx.now)),
-    ]);
-  }
   return json(await situationPayload(ctx, await loadSituation(ctx, user.id, row.id)));
 });
 
