@@ -1,3 +1,5 @@
+import type { Fact, ReadOption } from './reading';
+
 /** The AI's output shape, shared by the server (validation) and the client (rendering). */
 export interface PillarRead {
   pillar: 1 | 2 | 3 | 4;
@@ -9,6 +11,11 @@ export interface AnalysisResult {
   pillars: PillarRead[];
   bottom_line: string;
   safety_flag: boolean;
+  /** v2 readings (free-text situations) also carry these. */
+  version?: 2;
+  facts?: Fact[];
+  options?: ReadOption[];
+  unclear_note?: string;
 }
 
 /**
@@ -65,5 +72,13 @@ export function parseResult(raw: unknown): AnalysisResult | null {
     pillars.push({ pillar, applies, read: read.trim() });
   }
   pillars.sort((a, b) => a.pillar - b.pillar);
-  return { pillars, bottom_line: d.bottom_line.trim(), safety_flag: d.safety_flag };
+  const out: AnalysisResult = { pillars, bottom_line: d.bottom_line.trim(), safety_flag: d.safety_flag };
+  // Stored v2 readings: pass the extra sections through (validated when they were created).
+  if (d.version === 2) {
+    out.version = 2;
+    out.facts = Array.isArray(d.facts) ? (d.facts as Fact[]) : [];
+    out.options = Array.isArray(d.options) ? (d.options as ReadOption[]) : [];
+    out.unclear_note = typeof d.unclear_note === 'string' ? d.unclear_note : '';
+  }
+  return out;
 }

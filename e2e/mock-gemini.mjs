@@ -15,17 +15,34 @@ export function startMockGemini(port = 8790, { thoughtDelayMs = 450 } = {}) {
       const parsed = JSON.parse(body || '{}');
       const prompt = parsed?.contents?.[0]?.parts?.[0]?.text ?? '';
       calls.push({ url: req.url, key: req.headers['x-goog-api-key'], prompt, config: parsed.generationConfig });
+      const danger = prompt.includes('DANGER');
+      const yesKeys = danger
+        ? ['physical_harm', 'thought_through']
+        : ['others_way_of_life', 'asked_to_act', 'can_be_present', 'thought_through', 'others_decision', 'can_accept'];
+      const keys = ['physical_harm', 'berating', 'others_way_of_life', 'asked_to_act', 'can_be_present', 'thought_through', 'pressuring_others',
+        'child_affected', 'child_unsafe', 'family_for_appearance', 'law_involved', 'others_decision', 'can_accept', 'response_would_attack'];
       const answer = prompt.includes('MALFORMED')
         ? 'this is not json'
         : JSON.stringify({
+            facts: keys.map((key) => ({
+              key,
+              answer: yesKeys.includes(key) ? 'yes' : 'no',
+              evidence: yesKeys.includes(key) ? (danger ? 'threatened to hurt me' : 'invited me to her wedding') : '',
+            })),
             pillars: [
-              { pillar: 1, applies: true, read: 'No harm is involved. Attending as a guest is presence and support, not participation.' },
-              { pillar: 2, applies: true, read: 'You’re weighing this rather than reacting. That’s the self-check doing its job.' },
-              { pillar: 3, applies: false, read: 'Not a family matter. Doesn’t apply here.' },
-              { pillar: 4, applies: true, read: 'Her wedding is her domain. Respecting it asks nothing of yours.' },
+              { pillar: 1, read: 'No harm is involved. Attending as a guest is presence and support, not participation.' },
+              { pillar: 2, read: 'You’re weighing this rather than reacting. That’s the self-check doing its job.' },
+              { pillar: 3, read: 'Not a family matter, so this pillar doesn’t apply here.' },
+              { pillar: 4, read: 'Her wedding is her domain. Respecting it asks nothing of yours.' },
             ],
+            options: [
+              { kind: 'attend_without_participating', text: 'You could attend as a guest; under Pillar 1, presence isn’t participation.' },
+              { kind: 'decline_respectfully', text: 'You could decline while respecting her right to marry (Pillar 1).' },
+              { kind: 'respect_their_choice', text: 'You could leave her choice to her; disagreement isn’t harm (Pillar 1).' },
+            ],
+            unclear_note: '',
             bottom_line: 'Going as a guest fits your framework. Whether you go is your call.',
-            safety_flag: prompt.includes('DANGER'),
+            safety_flag: danger,
           });
       const chunk = (parts, finishReason) =>
         `data: ${JSON.stringify({ candidates: [{ content: { role: 'model', parts }, ...(finishReason ? { finishReason } : {}) }] })}\r\n\r\n`;

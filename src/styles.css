@@ -239,6 +239,26 @@ legend { padding: 0; margin-bottom: 6px; }
 .safety-banner svg { flex: 0 0 auto; width: 20px; height: 20px; margin-top: 1px; }
 .safety-banner a { color: var(--danger); font-weight: 600; }
 
+/* Result: how the AI read it, and the options */
+.how-read { border-radius: 14px; background: var(--surface); border: 1px solid var(--line-soft); padding: 0 14px; }
+.how-read summary { cursor: pointer; padding: 12px 0; font-size: 14px; font-weight: 600; color: var(--accent); list-style: none; }
+.how-read summary::-webkit-details-marker { display: none; }
+.how-read summary::after { content: ' ▾'; color: var(--muted); }
+.how-read[open] summary::after { content: ' ▴'; }
+.how-read ul { list-style: none; margin: 0; padding: 0 0 8px; display: flex; flex-direction: column; gap: 10px; }
+.how-read li { display: flex; gap: 10px; align-items: flex-start; font-size: 14px; line-height: 1.45; color: var(--ink-2); }
+.how-read li em { display: block; color: var(--muted); font-size: 13px; }
+.how-read .fineprint { padding-bottom: 10px; }
+.fact-chip { flex: 0 0 auto; font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; padding: 3px 8px; border-radius: 999px; margin-top: 1px; }
+.fact-chip.yes { background: var(--accent-soft); color: var(--accent); }
+.fact-chip.unclear { background: var(--quote); color: var(--muted); }
+.unclear-note { margin: 0; padding: 12px 14px; border-radius: 14px; border: 1px dashed var(--dashed); font-size: 14px; line-height: 1.5; color: var(--ink-2); }
+.options { display: flex; flex-direction: column; }
+.option-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.option-list li { display: flex; flex-direction: column; gap: 3px; padding: 12px 14px; border-radius: 14px; background: var(--surface); border: 1px solid var(--line-soft); animation: rise 0.45s var(--ease-out) both; animation-delay: calc(var(--i, 0) * 90ms + 560ms); }
+.option-list b { font-size: 15px; font-weight: 600; color: var(--accent); }
+.option-list span { font-size: 14px; line-height: 1.5; color: var(--ink-2); }
+
 /* ================= motion ================= */
 :root { --ease-out: cubic-bezier(0.2, 0.7, 0.2, 1); }
 
@@ -266,8 +286,8 @@ html.leaving .screen { animation: screen-out 0.17s ease-in both; pointer-events:
 
 /* Results: each pillar read rises in turn, then the bottom line. */
 .reads .read { animation: rise 0.45s var(--ease-out) both; animation-delay: calc(var(--i, 0) * 110ms + 120ms); }
-.bottom-line { animation: rise 0.5s var(--ease-out) both 0.62s; }
-.result-fineprint, .result-actions { animation: rise 0.45s var(--ease-out) both 0.78s; }
+.bottom-line { animation: rise 0.5s var(--ease-out) both 0.9s; }
+.result-fineprint, .result-actions { animation: rise 0.45s var(--ease-out) both 1.05s; }
 .fading-out { animation: screen-out 0.26s ease-in both; }
 
 /* ================= thinking (analysis in progress) ================= */

@@ -8,10 +8,10 @@
  * hard total cap.
  */
 import { CONFIG } from '../shared/config';
-import { parseResult, RESULT_SCHEMA, type AnalysisResult } from '../shared/result';
+import { finalizeReading, MODEL_SCHEMA, type Reading } from '../shared/reading';
 
 export type GeminiOutcome = (
-  | { ok: true; result: AnalysisResult }
+  | { ok: true; result: Reading }
   | { ok: false; reason: 'invalid' | 'quota' | 'timeout' | 'blocked' | 'error' }
 ) & {
   httpStatus?: number;
@@ -23,8 +23,8 @@ export type GeminiOutcome = (
   firstDataMs?: number;
   /** The model that produced this outcome. */
   model?: string;
-  /** Set when the fallback model was tried, with why the primary failed. */
-  fallbackFrom?: { model: string; reason: string; httpStatus?: number; firstDataMs?: number; thoughtChars?: number };
+  /** True if the final wording still told the user what to do after the retry. */
+  directive?: boolean;
 };
 
 export interface GeminiOptions {
@@ -34,10 +34,6 @@ export interface GeminiOptions {
   thinkingLevel?: string;
   /** Ask for thought summaries (default true). */
   includeThoughts?: boolean;
-  /** Tried once if the main model times out, is out of quota, or errors. */
-  fallbackModel?: string;
-  /** Called just before switching to the fallback model. */
-  onFallback?: () => void;
   baseUrl?: string;
   systemPrompt: string;
   userPrompt: string;
@@ -48,7 +44,7 @@ export interface GeminiOptions {
   totalTimeoutMs?: number;
   /** Called with each piece of thought-summary text as it streams in. */
   onThought?: (text: string) => void;
-  /** Called before the second attempt when the first answer was malformed. */
+  /** Called before the second attempt (malformed answer, or wording that instructs). */
   onRetry?: () => void;
 }
 
@@ -103,7 +99,7 @@ async function streamOnce(o: GeminiOptions): Promise<GeminiOutcome> {
                 },
               }),
           responseMimeType: 'application/json',
-          responseSchema: RESULT_SCHEMA,
+          responseSchema: MODEL_SCHEMA,
         },
       }),
       signal: ctrl.signal,
@@ -159,8 +155,12 @@ async function streamOnce(o: GeminiOptions): Promise<GeminiOutcome> {
     return done({ ok: false, reason: timedOut ? 'timeout' : 'error', thoughtChars });
   }
 
-  const result = parseResult(answer);
-  return done(result ? { ok: true, result, thoughtChars } : { ok: false, reason: 'invalid', thoughtChars });
+  const parsed = finalizeReading(answer);
+  return done(
+    parsed
+      ? { ok: true, result: parsed.reading, directive: parsed.directive, thoughtChars }
+      : { ok: false, reason: 'invalid', thoughtChars },
+  );
 }
 
 /**
@@ -177,35 +177,19 @@ async function errorDetail(res: Response): Promise<string> {
   }
 }
 
-/** One model: malformed output is retried exactly once. */
-async function withRetry(o: GeminiOptions): Promise<GeminiOutcome> {
-  const first = await streamOnce(o);
-  if (first.ok || first.reason !== 'invalid') return { ...first, attempts: 1 };
-  o.onRetry?.();
-  const second = await streamOnce(o);
-  return { ...second, attempts: 2, ms: (first.ms ?? 0) + (second.ms ?? 0) };
-}
-
 /**
- * Calls the main model; if it times out, has no quota or errors, tries the
- * fallback model once (without thought summaries: lighter models may not
- * support them).
+ * Calls Gemini. Retried exactly once when the answer is malformed, or when its
+ * wording tells the user what to do. A second answer that still instructs is
+ * used anyway (better than an error) and logged as directive.
  */
 export async function analyzeWithGemini(o: GeminiOptions): Promise<GeminiOutcome> {
-  const primary = await withRetry(o);
-  const canFallBack = !primary.ok && ['timeout', 'quota', 'error'].includes(primary.reason);
-  if (!canFallBack || !o.fallbackModel || o.fallbackModel === o.model) return primary;
-  o.onFallback?.();
-  const fallback = await withRetry({ ...o, model: o.fallbackModel, thinkingLevel: undefined, includeThoughts: false });
-  return {
-    ...fallback,
-    ms: (primary.ms ?? 0) + (fallback.ms ?? 0),
-    fallbackFrom: {
-      model: o.model,
-      reason: primary.ok ? 'ok' : primary.reason,
-      httpStatus: primary.httpStatus,
-      firstDataMs: primary.firstDataMs,
-      thoughtChars: primary.thoughtChars,
-    },
-  };
+  const first = await streamOnce(o);
+  const needsRetry = first.ok ? first.directive : first.reason === 'invalid';
+  if (!needsRetry) return { ...first, attempts: 1 };
+  o.onRetry?.();
+  const second = await streamOnce(o);
+  const ms = (first.ms ?? 0) + (second.ms ?? 0);
+  // If the retry broke but the first answer was usable (just wordy), keep the first.
+  if (!second.ok && first.ok) return { ...first, attempts: 2, ms };
+  return { ...second, attempts: 2, ms };
 }

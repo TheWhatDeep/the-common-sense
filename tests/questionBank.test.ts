@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   cleanAnswers,
+  getBank,
   interviewComplete,
   needsSafetyNotice,
   pillarComplete,
@@ -8,7 +9,9 @@ import {
   visibleQuestions,
 } from '../shared/questionBank';
 
-const ids = (a: Record<string, { value: string }>) => visibleQuestions(a).map((q) => q.id);
+// These rules belong to the old question set (v1); new situations are free text (v2, no questions).
+const V1 = getBank(1);
+const ids = (a: Record<string, { value: string }>) => visibleQuestions(a, V1).map((q) => q.id);
 
 describe('interview branching', () => {
   it('shows only the always-on questions with no answers', () => {
@@ -46,15 +49,15 @@ describe('interview branching', () => {
   });
 
   it('physical violence triggers the Safety notice', () => {
-    expect(needsSafetyNotice({ 'p1.harm': { value: 'yes' }, 'p1.violence': { value: 'yes' } })).toBe(true);
-    expect(needsSafetyNotice({ 'p1.harm': { value: 'no' }, 'p1.violence': { value: 'yes' } })).toBe(false);
+    expect(needsSafetyNotice({ 'p1.harm': { value: 'yes' }, 'p1.violence': { value: 'yes' } }, V1)).toBe(true);
+    expect(needsSafetyNotice({ 'p1.harm': { value: 'no' }, 'p1.violence': { value: 'yes' } }, V1)).toBe(false);
   });
 
   it('Next is blocked until each required question on the pillar is answered', () => {
-    expect(pillarComplete(1, { 'p1.harm': { value: 'yes' } })).toBe(false);
-    expect(pillarComplete(1, { 'p1.harm': { value: 'yes' }, 'p1.violence': { value: 'no' } })).toBe(true);
+    expect(pillarComplete(1, { 'p1.harm': { value: 'yes' } }, V1)).toBe(false);
+    expect(pillarComplete(1, { 'p1.harm': { value: 'yes' }, 'p1.violence': { value: 'no' } }, V1)).toBe(true);
     // p2.change is optional free text
-    expect(pillarComplete(2, { 'p2.examined': { value: 'reacting' } })).toBe(true);
+    expect(pillarComplete(2, { 'p2.examined': { value: 'reacting' } }, V1)).toBe(true);
   });
 
   it('knows when the whole interview is complete', () => {
@@ -66,36 +69,44 @@ describe('interview branching', () => {
       'p4.domain': { value: 'theirs' },
       'p4.method': { value: 'disagreement' },
     };
-    expect(interviewComplete(a)).toBe(false); // p4.accept now visible
-    expect(interviewComplete({ ...a, 'p4.accept': { value: 'yes' } })).toBe(true);
+    expect(interviewComplete(a, V1)).toBe(false); // p4.accept now visible
+    expect(interviewComplete({ ...a, 'p4.accept': { value: 'yes' } }, V1)).toBe(true);
   });
 });
 
 describe('cleanAnswers', () => {
   it('rejects unknown questions and invalid options', () => {
-    expect(cleanAnswers({ 'p9.nope': { value: 'yes' } }).ok).toBe(false);
-    expect(cleanAnswers({ 'p1.harm': { value: 'maybe' } }).ok).toBe(false);
+    expect(cleanAnswers({ 'p9.nope': { value: 'yes' } }, V1).ok).toBe(false);
+    expect(cleanAnswers({ 'p1.harm': { value: 'maybe' } }, V1).ok).toBe(false);
   });
 
   it('rejects notes over 300 characters', () => {
-    expect(cleanAnswers({ 'p1.harm': { value: 'no', note: 'x'.repeat(301) } }).ok).toBe(false);
-    expect(cleanAnswers({ 'p1.harm': { value: 'no', note: 'x'.repeat(300) } }).ok).toBe(true);
+    expect(cleanAnswers({ 'p1.harm': { value: 'no', note: 'x'.repeat(301) } }, V1).ok).toBe(false);
+    expect(cleanAnswers({ 'p1.harm': { value: 'no', note: 'x'.repeat(300) } }, V1).ok).toBe(true);
   });
 
   it('drops answers to questions that are no longer visible', () => {
-    const r = cleanAnswers({ 'p1.harm': { value: 'no' }, 'p1.violence': { value: 'yes' } });
+    const r = cleanAnswers({ 'p1.harm': { value: 'no' }, 'p1.violence': { value: 'yes' } }, V1);
     expect(r.ok && r.answers).toEqual({ 'p1.harm': { value: 'no' } });
   });
 
   it('drops an empty optional text answer', () => {
-    const r = cleanAnswers({ 'p2.change': { value: '   ' } });
+    const r = cleanAnswers({ 'p2.change': { value: '   ' } }, V1);
     expect(r.ok && r.answers).toEqual({});
   });
 });
 
 describe('resumeStep', () => {
   it('points at the first unfinished pillar', () => {
-    expect(resumeStep({})).toBe(2);
-    expect(resumeStep({ 'p1.harm': { value: 'no' }, 'p1.participate': { value: 'present' } })).toBe(3);
+    expect(resumeStep({}, V1)).toBe(2);
+    expect(resumeStep({ 'p1.harm': { value: 'no' }, 'p1.participate': { value: 'present' } }, V1)).toBe(3);
+  });
+});
+
+describe('free-text question set (v2)', () => {
+  it('asks nothing, so a new situation is complete and resumes at its description', () => {
+    expect(getBank(2)).toEqual([]);
+    expect(interviewComplete({}, getBank(2))).toBe(true);
+    expect(resumeStep({}, getBank(2))).toBe(1);
   });
 });

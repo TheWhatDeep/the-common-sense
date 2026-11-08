@@ -11,6 +11,7 @@ import {
   cleanAnswers,
   getBank,
   interviewComplete,
+  isFreeText,
   resumeStep,
   type Answers,
 } from '../shared/questionBank';
@@ -311,10 +312,12 @@ route('POST', '/situations', async (ctx) => {
   const text = cleanText((await readJson(ctx.request)).text);
   const id = newId();
   const ts = ctx.now.toISOString();
+  // Free-text situations need no answers, so they're ready for a read straight away.
+  const status = isFreeText(BANK_VERSION) ? 'answered' : 'draft';
   await ctx.env.DB.prepare(
-    "INSERT INTO situations (id, user_id, text, status, bank_version, created_at, updated_at) VALUES (?, ?, ?, 'draft', ?, ?, ?)",
+    'INSERT INTO situations (id, user_id, text, status, bank_version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
   )
-    .bind(id, user.id, text, BANK_VERSION, ts, ts)
+    .bind(id, user.id, text, status, BANK_VERSION, ts, ts)
     .run();
   return json(await situationPayload(ctx, await loadSituation(ctx, user.id, id)), 201);
 });
@@ -434,7 +437,8 @@ route('POST', '/situations/:id/analyze', async (ctx) => {
   if (row.status === 'analyzed') return json(await situationPayload(ctx, row));
 
   const answers = await loadAnswers(ctx, row.id);
-  if (row.status !== 'answered' || !interviewComplete(answers, getBank(row.bank_version)))
+  // Old question-set situations need every answer; free-text ones need nothing more.
+  if (!interviewComplete(answers, getBank(row.bank_version)))
     throw new HttpError(409, 'incomplete', 'Answer every question first.');
 
   const usage = await usageInfo(ctx, user.id);
@@ -445,12 +449,10 @@ route('POST', '/situations/:id/analyze', async (ctx) => {
   const apiKey = ctx.env.GEMINI_API_KEY;
   const model = ctx.env.GEMINI_MODEL || CONFIG.defaultGeminiModel;
 
-  const run = async (onThought?: (t: string) => void, onRetry?: () => void, onFallback?: () => void) => {
+  const run = async (onThought?: (t: string) => void, onRetry?: () => void) => {
     const outcome = await analyzeWithGemini({
       apiKey,
       model,
-      fallbackModel: ctx.env.GEMINI_FALLBACK_MODEL || undefined,
-      onFallback,
       thinkingLevel: ctx.env.GEMINI_THINKING_LEVEL || undefined,
       baseUrl: ctx.env.GEMINI_BASE_URL,
       systemPrompt: buildSystemPrompt(),
@@ -472,7 +474,8 @@ route('POST', '/situations/:id/analyze', async (ctx) => {
         attempts: outcome.attempts,
         thoughtChars: outcome.thoughtChars,
         firstDataMs: outcome.firstDataMs,
-        fallbackFrom: outcome.fallbackFrom,
+        directive: outcome.directive,
+        safetyFlag: outcome.ok ? outcome.result.safety_flag : undefined,
       }),
     );
     if (!outcome.ok) {
@@ -518,7 +521,6 @@ route('POST', '/situations/:id/analyze', async (ctx) => {
       const situation = await run(
         (text) => send('thought', { text }),
         () => send('retry', {}),
-        () => send('fallback', {}),
       );
       send('result', situation);
     } catch (err) {

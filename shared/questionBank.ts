@@ -150,8 +150,17 @@ const BANK_V1: Question[] = [
   },
 ];
 
-export const BANK_VERSION = 1;
-export const BANKS: Record<number, Question[]> = { 1: BANK_V1 };
+/**
+ * v2 has no questions: the user describes the situation and the AI reads it
+ * (see shared/reading.ts). v1 stays so older situations still open.
+ */
+export const BANK_VERSION = 2;
+export const BANKS: Record<number, Question[]> = { 1: BANK_V1, 2: [] };
+
+/** True for question sets that ask nothing (free-text reading). */
+export function isFreeText(version: number): boolean {
+  return getBank(version).length === 0;
+}
 
 export const PILLAR_NAMES: Record<number, string> = {
   1: 'Belief Plurality',
@@ -250,6 +259,7 @@ export function optionLabel(q: Question, value: string): string {
 
 /** Where to resume a draft: the step (2-5) of the first pillar still missing an answer; 5 when complete. */
 export function resumeStep(answers: Answers, bank?: Question[]): number {
+  if (bank && bank.length === 0) return 1; // free text: back to the description
   for (const p of [1, 2, 3, 4]) if (!pillarComplete(p, answers, bank)) return p + 1;
   return 5;
 }

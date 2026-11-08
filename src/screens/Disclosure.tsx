@@ -6,7 +6,7 @@ export function DisclosureText() {
   return (
     <>
       <p>
-        When you ask for a read, the situation you describe and your answers are sent to <b>Google's Gemini API</b>.
+        When you ask for a read, the situation you describe is sent to <b>Google's Gemini API</b>.
       </p>
       <p>
         This app uses Gemini's <b>free tier</b>. On the free tier, <b>Google may use what you send to improve its products</b>, and

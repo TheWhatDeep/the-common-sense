@@ -7,13 +7,26 @@ import { createTestDb } from './helpers/d1';
 const KEY = 'test-secret-gemini-key-123';
 const BASE = 'http://localhost:8788';
 
+/** A v2 model reading: facts first, then reads (no "applies": the rules decide that). */
+const facts = (yesKeys: string[]) =>
+  [
+    'physical_harm', 'berating', 'others_way_of_life', 'asked_to_act', 'can_be_present', 'thought_through', 'pressuring_others',
+    'child_affected', 'child_unsafe', 'family_for_appearance', 'law_involved', 'others_decision', 'can_accept', 'response_would_attack',
+  ].map((key) => ({ key, answer: yesKeys.includes(key) ? 'yes' : 'no', evidence: yesKeys.includes(key) ? 'from the text' : '' }));
+
 const GOOD = {
+  facts: facts(['others_way_of_life', 'asked_to_act', 'can_be_present', 'thought_through', 'others_decision', 'can_accept']),
   pillars: [
-    { pillar: 1, applies: true, read: 'No harm is involved. Attending is support, not participation.' },
-    { pillar: 2, applies: true, read: "You're weighing this rather than reacting." },
-    { pillar: 3, applies: false, read: "Not a family matter. Doesn't apply here." },
-    { pillar: 4, applies: true, read: 'Her wedding is her domain.' },
+    { pillar: 1, read: 'No harm is involved. Attending is support, not participation.' },
+    { pillar: 2, read: "You're weighing this rather than reacting." },
+    { pillar: 3, read: "Not a family matter. Doesn't apply here." },
+    { pillar: 4, read: 'Her wedding is her domain.' },
   ],
+  options: [
+    { kind: 'attend_without_participating', text: 'You could attend as a guest; presence isn’t participation (Pillar 1).' },
+    { kind: 'get_safe', text: 'Not allowed by these facts, so the rules drop it.' },
+  ],
+  unclear_note: '',
   bottom_line: 'Going as a guest fits your framework. Whether you go is your call.',
   safety_flag: false,
 };
@@ -80,11 +93,19 @@ async function signIn(email: string, acceptDisclosure = true): Promise<string> {
   return cookie;
 }
 
-async function answeredSituation(cookie: string): Promise<string> {
-  const created = await call('POST', '/situations', { cookie, body: { text: 'A coworker invited me to her wedding.' } });
-  const { id } = (await created.json()) as { id: string };
-  const put = await call('PUT', `/situations/${id}/answers`, { cookie, body: { answers: COMPLETE } });
-  expect(((await put.json()) as { status: string }).status).toBe('answered');
+/** A new situation: free text, ready for a read straight away. */
+async function answeredSituation(cookie: string, text = 'A coworker invited me to her wedding.'): Promise<string> {
+  const created = await call('POST', '/situations', { cookie, body: { text } });
+  const body = (await created.json()) as { id: string; status: string };
+  expect(body.status).toBe('answered');
+  return body.id;
+}
+
+/** A situation from the old question set (bank v1), as older accounts have. */
+async function v1Situation(cookie: string, answers?: Record<string, { value: string; note?: string }>): Promise<string> {
+  const { id } = (await (await call('POST', '/situations', { cookie, body: { text: 'An older situation.' } })).json()) as { id: string };
+  raw.prepare("UPDATE situations SET bank_version = 1, status = 'draft' WHERE id = ?").run(id);
+  if (answers) await call('PUT', `/situations/${id}/answers`, { cookie, body: { answers } });
   return id;
 }
 
@@ -169,16 +190,16 @@ describe('disclosure', () => {
 });
 
 describe('situations', () => {
-  it('enforces the 1,000-character cap and rejects empty text', async () => {
+  it('enforces the 2,000-character cap and rejects empty text', async () => {
     const cookie = await signIn('a@x.com');
     expect((await call('POST', '/situations', { cookie, body: { text: '   ' } })).status).toBe(400);
-    expect((await call('POST', '/situations', { cookie, body: { text: 'x'.repeat(1001) } })).status).toBe(400);
-    expect((await call('POST', '/situations', { cookie, body: { text: 'x'.repeat(1000) } })).status).toBe(201);
+    expect((await call('POST', '/situations', { cookie, body: { text: 'x'.repeat(2001) } })).status).toBe(400);
+    expect((await call('POST', '/situations', { cookie, body: { text: 'x'.repeat(2000) } })).status).toBe(201);
   });
 
-  it('moves draft → answered as answers complete, and validates against the bank', async () => {
+  it('old question-set situations: draft → answered as answers complete, validated against their bank', async () => {
     const cookie = await signIn('a@x.com');
-    const { id } = (await (await call('POST', '/situations', { cookie, body: { text: 'hi' } })).json()) as { id: string };
+    const id = await v1Situation(cookie);
     const partial = await call('PUT', `/situations/${id}/answers`, { cookie, body: { answers: { 'p1.harm': { value: 'no' } } } });
     expect(((await partial.json()) as { status: string }).status).toBe('draft');
     const bad = await call('PUT', `/situations/${id}/answers`, { cookie, body: { answers: { 'p1.harm': { value: 'perhaps' } } } });
@@ -220,10 +241,15 @@ describe('analyze', () => {
     queue.push(() => geminiReply(GOOD));
     const res = await call('POST', `/situations/${id}/analyze`, { cookie });
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { status: string; result: { pillars: { applies: boolean }[]; bottom_line: string } };
+    const body = (await res.json()) as {
+      status: string;
+      result: { pillars: { applies: boolean }[]; bottom_line: string; options: { kind: string }[]; facts: unknown[] };
+    };
     expect(body.status).toBe('analyzed');
     expect(body.result.pillars).toHaveLength(4);
-    expect(body.result.pillars[2].applies).toBe(false);
+    expect(body.result.pillars.map((p) => p.applies)).toEqual([true, true, false, true]); // from the facts
+    expect(body.result.facts).toHaveLength(14);
+    expect(body.result.options.map((o) => o.kind)).toEqual(['attend_without_participating']); // get_safe dropped
     expect(body.result.bottom_line).toMatch(/your call/);
 
     // The prompt carries the situation and labelled answers; the key goes only in the header.
@@ -232,8 +258,9 @@ describe('analyze', () => {
     expect(sent.url).not.toContain(KEY);
     expect((sent.init.headers as Record<string, string>)['x-goog-api-key']).toBe(KEY);
     const prompt = JSON.parse(String(sent.init.body));
-    expect(prompt.contents[0].parts[0].text).toContain('[p1.participate]');
-    expect(prompt.contents[0].parts[0].text).toContain('Note: Just attending');
+    expect(prompt.contents[0].parts[0].text).toContain('<situation>');
+    expect(prompt.contents[0].parts[0].text).not.toContain('<answers>');
+    expect(prompt.systemInstruction.parts[0].text).toContain('Step 1. Facts');
     expect(prompt.generationConfig.responseMimeType).toBe('application/json');
     expect(prompt.generationConfig.thinkingConfig.includeThoughts).toBe(true);
 
@@ -308,11 +335,34 @@ describe('analyze', () => {
     expect((await call('POST', `/situations/${id}/analyze`, { cookie })).status).toBe(422);
     const s = (await (await call('GET', `/situations/${id}`, { cookie })).json()) as { status: string };
     expect(s.status).toBe('draft');
+    // A free-text draft can be edited and read again.
+    queue.push(() => geminiReply(GOOD));
+    expect((await call('POST', `/situations/${id}/analyze`, { cookie })).status).toBe(200);
   });
 
-  it('refuses incomplete interviews', async () => {
+  it('old question-set situations still carry their answers into the prompt', async () => {
     const cookie = await signIn('a@x.com');
-    const { id } = (await (await call('POST', '/situations', { cookie, body: { text: 'hi' } })).json()) as { id: string };
+    const id = await v1Situation(cookie, COMPLETE);
+    queue.push(() => geminiReply(GOOD));
+    expect((await call('POST', `/situations/${id}/analyze`, { cookie })).status).toBe(200);
+    const prompt = JSON.parse(String(geminiCalls[0].init.body)).contents[0].parts[0].text;
+    expect(prompt).toContain('[p1.participate]');
+    expect(prompt).toContain('Note: Just attending');
+  });
+
+  it('wording that tells the user what to do is sent back once', async () => {
+    const cookie = await signIn('a@x.com');
+    const id = await answeredSituation(cookie);
+    const bossy = { ...GOOD, bottom_line: 'You must go to the wedding.' };
+    queue.push(() => geminiReply(bossy), () => geminiReply(GOOD));
+    const res = await call('POST', `/situations/${id}/analyze`, { cookie });
+    expect(geminiCalls).toHaveLength(2);
+    expect(((await res.json()) as { result: { bottom_line: string } }).result.bottom_line).toBe(GOOD.bottom_line);
+  });
+
+  it('refuses incomplete old question-set interviews', async () => {
+    const cookie = await signIn('a@x.com');
+    const id = await v1Situation(cookie);
     expect((await call('POST', `/situations/${id}/analyze`, { cookie })).status).toBe(409);
   });
 
@@ -407,7 +457,7 @@ describe('streaming analyze', () => {
 
   it('checks that fail before Gemini is called come back as plain JSON', async () => {
     const cookie = await signIn('a@x.com');
-    const { id } = (await (await call('POST', '/situations', { cookie, body: { text: 'hi' } })).json()) as { id: string };
+    const id = await v1Situation(cookie); // unanswered old-style situation → 409
     const res = await callStream(`/situations/${id}/analyze`, cookie);
     expect(res.status).toBe(409);
     expect(res.headers.get('content-type')).toContain('application/json');
@@ -430,48 +480,6 @@ describe('streaming analyze', () => {
     expect(all).not.toContain(KEY);
     expect(all).not.toContain('Weighing harm');
     expect(all).not.toContain('coworker');
-  });
-});
-
-describe('fallback model', () => {
-  it('when the main model times out, the fallback model writes the read', async () => {
-    env.GEMINI_FALLBACK_MODEL = 'lite-model';
-    const cookie = await signIn('a@x.com');
-    const id = await answeredSituation(cookie);
-    queue.push(
-      () => {
-        throw Object.assign(new Error('timed out'), { name: 'TimeoutError' });
-      },
-      () => geminiReply(GOOD),
-    );
-    const lines: string[] = [];
-    const orig = console.log;
-    console.log = (...a: unknown[]) => lines.push(a.join(' '));
-    let events;
-    try {
-      events = await readEvents(await callStream(`/situations/${id}/analyze`, cookie));
-    } finally {
-      console.log = orig;
-    }
-    expect(events.map((e) => e.event)).toEqual(['start', 'fallback', 'thought', 'result']);
-    expect(geminiCalls[0].url).toContain('/models/test-model:');
-    expect(geminiCalls[1].url).toContain('/models/lite-model:');
-    // The lighter model is called without thinking settings.
-    expect(JSON.parse(String(geminiCalls[1].init.body)).generationConfig.thinkingConfig).toBeUndefined();
-    const log = JSON.parse(lines.find((l) => l.includes('gemini_call'))!);
-    expect(log.model).toBe('lite-model');
-    expect(log.fallbackFrom).toMatchObject({ model: 'test-model', reason: 'timeout' });
-    const s = (await (await call('GET', `/situations/${id}`, { cookie })).json()) as { result: { model: string } };
-    expect(s.result.model).toBe('lite-model');
-  });
-
-  it('does not fall back on blocked content', async () => {
-    env.GEMINI_FALLBACK_MODEL = 'lite-model';
-    const cookie = await signIn('a@x.com');
-    const id = await answeredSituation(cookie);
-    queue.push(() => sse([{ promptFeedback: { blockReason: 'SAFETY' } }]));
-    expect((await call('POST', `/situations/${id}/analyze`, { cookie })).status).toBe(422);
-    expect(geminiCalls).toHaveLength(1);
   });
 });
 
@@ -502,13 +510,15 @@ describe('saved reads and the dashboard list', () => {
 
   it('tells the dashboard which step a draft resumes at', async () => {
     const cookie = await signIn('a@x.com');
-    const { id } = (await (await call('POST', '/situations', { cookie, body: { text: 'hi' } })).json()) as { id: string };
-    await call('PUT', `/situations/${id}/answers`, {
-      cookie,
-      body: { answers: { 'p1.harm': { value: 'no' }, 'p1.participate': { value: 'present' } } },
-    });
-    const list = (await (await call('GET', '/situations', { cookie })).json()) as { situations: { step: number }[] };
+    await v1Situation(cookie, { 'p1.harm': { value: 'no' }, 'p1.participate': { value: 'present' } });
+    let list = (await (await call('GET', '/situations', { cookie })).json()) as { situations: { step: number | null }[] };
     expect(list.situations[0].step).toBe(3);
+    // A free-text situation that went back to draft resumes at its description.
+    now = new Date(now.getTime() + 1000);
+    const id = await answeredSituation(cookie);
+    raw.prepare("UPDATE situations SET status = 'draft' WHERE id = ?").run(id);
+    list = (await (await call('GET', '/situations', { cookie })).json()) as { situations: { step: number | null }[] };
+    expect(list.situations[0].step).toBe(1);
   });
 });
 
@@ -537,7 +547,7 @@ describe('deletion', () => {
     expect(count('users')).toBe(1);
     expect(count('sessions')).toBe(1);
     expect(count('situations')).toBe(1);
-    expect(count('answers')).toBe(Object.keys(COMPLETE).length);
+    expect(count('answers')).toBe(0); // free-text situations have no answers
     expect(count('results')).toBe(1);
     expect(count('usage')).toBe(1);
   });

@@ -6,8 +6,10 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { CONFIG } from '../../shared/config';
 import {
+  BANK_VERSION,
   getBank,
   isAnswered,
+  isFreeText,
   needsSafetyNotice,
   pillarComplete,
   PILLAR_NAMES,
@@ -141,6 +143,9 @@ export function Interview(props: { id?: string; step: string }) {
     const trimmed = text.trim();
     const over = text.length > CONFIG.situationMaxChars;
     const canContinue = trimmed.length > 0 && !over && !saving;
+    // Free-text situations (the current flow) go straight to the read; old ones continue to the pillar questions.
+    const freeText = isFreeText(situation?.bankVersion ?? BANK_VERSION);
+    const after = (id: string) => (freeText ? `/s/${id}/read` : `/s/${id}/2`);
     const next = async () => {
       setSaving(true);
       setError('');
@@ -149,14 +154,14 @@ export function Interview(props: { id?: string; step: string }) {
         if (!s) {
           s = await api.createSituation(trimmed);
           situationCache.set(s.id, s);
-          go(`/s/${s.id}/2`, { replace: true });
+          go(after(s.id), { replace: true });
           return;
         }
         if (trimmed !== s.text) {
           s = await api.updateText(s.id, trimmed);
           setSituation(s);
         }
-        go(`/s/${s.id}/2`);
+        go(after(s.id));
       } catch (e) {
         setError(e instanceof ApiError ? e.message : 'Could not save. Try again.');
       } finally {
@@ -165,13 +170,25 @@ export function Interview(props: { id?: string; step: string }) {
     };
     return (
       <div class="screen" key="step-1">
-        <Header step={1} backIsClose onBack={close} onClose={close} />
-        <main class="main" style={{ gap: '20px', paddingTop: '28px' }}>
+        {freeText ? (
+          <header class="topbar">
+            <button class="icon-btn" aria-label="Close" onClick={close}>
+              <CloseIcon />
+            </button>
+          </header>
+        ) : (
+          <Header step={1} backIsClose onBack={close} onClose={close} />
+        )}
+        <main class="main" style={{ gap: '20px', paddingTop: freeText ? '12px' : '28px' }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
             <label for="situation" class="h-md">
               What’s the situation?
             </label>
-            <p class="lede">Describe it in your own words. The more specific, the better the read.</p>
+            <p class="lede">
+              {freeText
+                ? 'Describe it in your own words: what happened, who’s involved, and what you’re being asked to do or deciding. Mention any children, laws or rules involved.'
+                : 'Describe it in your own words. The more specific, the better the read.'}
+            </p>
           </div>
           <textarea
             id="situation"
@@ -190,7 +207,7 @@ export function Interview(props: { id?: string; step: string }) {
         </main>
         <footer class="footer">
           <button class="btn btn-primary" disabled={!canContinue} onClick={next}>
-            {saving ? 'Saving…' : 'Continue'}
+            {saving ? 'Saving…' : freeText ? 'Get the read' : 'Continue'}
           </button>
         </footer>
       </div>

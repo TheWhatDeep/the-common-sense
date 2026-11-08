@@ -3,7 +3,8 @@
  * While Gemini works, its thought summaries stream into the waiting screen.
  */
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { PILLAR_NAMES, resumeStep } from '../../shared/questionBank';
+import { getBank, interviewComplete, PILLAR_NAMES, resumeStep } from '../../shared/questionBank';
+import { FACT_LABELS, OPTION_LABELS, type Fact } from '../../shared/reading';
 import { analyzeStream, api, ApiError, type Situation } from '../api';
 import { formatTime, Loading, SafetyBanner, SafetyNotice, Toast } from '../components';
 import { CloseIcon, PillarsMark } from '../icons';
@@ -21,7 +22,6 @@ export function Read(props: { id: string; onUsageChange: () => void }) {
   const [state, setState] = useState<State>({ kind: 'loading' });
   const [thoughts, setThoughts] = useState('');
   const [retrying, setRetrying] = useState(false);
-  const [fallback, setFallback] = useState(false);
   const [leaving, setLeaving] = useState(false);
   const [safetyDismissed, setSafetyDismissed] = useState(false);
   const [toast, setToast] = useState('');
@@ -32,10 +32,10 @@ export function Read(props: { id: string; onUsageChange: () => void }) {
       setState({ kind: 'loading' });
       const s = await api.getSituation(props.id);
       if (s.status === 'analyzed' && s.result) return setState({ kind: 'done', situation: s });
-      if (s.status !== 'answered') return navigate(`/s/${s.id}/${resumeStep(s.answers)}`, { replace: true });
+      const bank = getBank(s.bankVersion);
+      if (!interviewComplete(s.answers, bank)) return navigate(`/s/${s.id}/${resumeStep(s.answers, bank)}`, { replace: true });
       setThoughts('');
       setRetrying(false);
-      setFallback(false);
       setState({ kind: 'analyzing' });
       const analyzed = await analyzeStream(s.id, {
         onThought: (t) => setThoughts((prev) => prev + t),
@@ -43,7 +43,6 @@ export function Read(props: { id: string; onUsageChange: () => void }) {
           setRetrying(true);
           setThoughts((prev) => prev + '\n\n');
         },
-        onFallback: () => setFallback(true),
       });
       props.onUsageChange();
       // Fade the thinking view out, then bring the result in.
@@ -64,7 +63,7 @@ export function Read(props: { id: string; onUsageChange: () => void }) {
   }, [props.id]);
 
   if (state.kind === 'loading') return <Loading />;
-  if (state.kind === 'analyzing') return <Thinking text={thoughts} retrying={retrying} fallback={fallback} leaving={leaving} />;
+  if (state.kind === 'analyzing') return <Thinking text={thoughts} retrying={retrying} leaving={leaving} />;
 
   if (state.kind === 'error') {
     const retryable = RETRYABLE.includes(state.code);
@@ -140,6 +139,8 @@ export function Read(props: { id: string; onUsageChange: () => void }) {
           <h1 class="h-lg">The read</h1>
           {r.safety_flag && <SafetyBanner />}
           <p class="quote">{s.text}</p>
+          {r.facts && r.facts.length > 0 && <HowItRead facts={r.facts} />}
+          {r.unclear_note && <p class="unclear-note">{r.unclear_note}</p>}
         </div>
         <section class="reads" aria-labelledby="reads-title">
           <h2 id="reads-title" class="section-label">
@@ -160,11 +161,26 @@ export function Read(props: { id: string; onUsageChange: () => void }) {
             </div>
           ))}
         </section>
+        {r.options && r.options.length > 0 && (
+          <section class="options" aria-labelledby="options-title">
+            <h2 id="options-title" class="section-label">
+              Your options
+            </h2>
+            <ul class="option-list">
+              {r.options.map((o, i) => (
+                <li key={o.kind} style={{ '--i': i }}>
+                  <b>{OPTION_LABELS[o.kind] ?? o.kind}</b>
+                  <span>{o.text}</span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
         <section class="bottom-line">
           <h2>Bottom line</h2>
           <p>{r.bottom_line}</p>
         </section>
-        <p class="fineprint result-fineprint">AI-generated guidance based on your answers. You make the decision.</p>
+        <p class="fineprint result-fineprint">AI-generated guidance based on what you described. You make the decision.</p>
       </main>
       <footer class="footer result-actions" style={{ position: 'static', background: 'none' }}>
         <button class={`btn ${s.saved ? 'btn-outline' : 'btn-primary'}`} disabled={saving} aria-pressed={s.saved} onClick={toggleSave}>
@@ -176,6 +192,30 @@ export function Read(props: { id: string; onUsageChange: () => void }) {
       </footer>
       {toast && <Toast message={toast} onDone={() => setToast('')} />}
     </div>
+  );
+}
+
+/** What the AI took from the description: the checks that came back yes or unclear, with its evidence. */
+function HowItRead(props: { facts: Fact[] }) {
+  const shown = props.facts.filter((f) => f.answer !== 'no');
+  const noCount = props.facts.length - shown.length;
+  return (
+    <details class="how-read">
+      <summary>How the AI read your situation</summary>
+      <ul>
+        {shown.map((f) => (
+          <li key={f.key}>
+            <span class={`fact-chip ${f.answer}`}>{f.answer === 'yes' ? 'Yes' : 'Unclear'}</span>
+            <span>
+              {FACT_LABELS[f.key] ?? f.key}
+              {f.evidence && <em> “{f.evidence}”</em>}
+            </span>
+          </li>
+        ))}
+      </ul>
+      {noCount > 0 && <p class="fineprint" style={{ textAlign: 'left' }}>{noCount} other checks came back no.</p>}
+      <p class="fineprint" style={{ textAlign: 'left' }}>Something misread? Edit your description and run it again.</p>
+    </details>
   );
 }
 
@@ -196,7 +236,7 @@ function renderThoughts(text: string) {
   });
 }
 
-function Thinking(props: { text: string; retrying: boolean; fallback: boolean; leaving: boolean }) {
+function Thinking(props: { text: string; retrying: boolean; leaving: boolean }) {
   const box = useRef<HTMLDivElement>(null);
   const [waited, setWaited] = useState(0);
   useEffect(() => {
@@ -207,14 +247,11 @@ function Thinking(props: { text: string; retrying: boolean; fallback: boolean; l
   useEffect(() => {
     const el = box.current;
     if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
-  }, [props.text, props.fallback]);
+  }, [props.text]);
 
-  const headline = props.fallback ? 'Switching to a faster model' : props.retrying ? 'Taking another pass' : 'Reading your situation';
-  const waitingNote = props.fallback
-    ? 'The main model was too slow to start, so a lighter one is writing your read. It doesn’t share its working notes.'
-    : waited >= 10
-      ? 'Still waiting for Gemini to start. It can be slow when Google’s free tier is busy.'
-      : 'Getting started…';
+  const headline = props.retrying ? 'Taking another pass' : 'Reading your situation';
+  const waitingNote =
+    waited >= 10 ? 'Still waiting for Gemini to start. It can be slow when Google’s free tier is busy.' : 'Getting started…';
 
   return (
     <div class={`screen${props.leaving ? ' fading-out' : ''}`}>
@@ -237,7 +274,7 @@ function Thinking(props: { text: string; retrying: boolean; fallback: boolean; l
         <span class="eyebrow">How the AI is thinking</span>
         <div class="thought-stream" ref={box}>
           {props.text && renderThoughts(props.text)}
-          {(!props.text || props.fallback) && <p class="thought-wait">{waitingNote}</p>}
+          {!props.text && <p class="thought-wait">{waitingNote}</p>}
         </div>
         <p class="fineprint">These are the model’s working notes, not the final read. You can close this screen; the read will be on your dashboard.</p>
       </section>
