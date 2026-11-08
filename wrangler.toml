@@ -14,7 +14,7 @@ enabled = true
 
 [vars]
 # Swap the Gemini model here without touching code.
-GEMINI_MODEL = "gemini-3.8-flash"
+GEMINI_MODEL = "gemini-3.6-flash"
 # Thinking level sent to Gemini. Unset = model default. Its thought summaries
 # stream to the waiting screen. Faster fallback model: "gemini-3.5-flash-lite".
 GEMINI_THINKING_LEVEL = "low"

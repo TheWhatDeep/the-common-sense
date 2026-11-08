@@ -7,7 +7,7 @@ export const CONFIG = {
   situationMaxChars: 1000,
   noteMaxChars: 300,
   /** Fallback when the GEMINI_MODEL var is not set. */
-  defaultGeminiModel: 'gemini-3.8-flash',
+  defaultGeminiModel: 'gemini-3.6-flash',
   /** Streaming: give up if Gemini sends nothing for this long. */
   geminiIdleTimeoutMs: 30_000,
   /** Streaming: hard cap on one Gemini call, however chatty it is. */
