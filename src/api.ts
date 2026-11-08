@@ -82,7 +82,7 @@ export const api = {
   getSituation: (id: string) => request<Situation>('GET', `/situations/${id}`),
   updateText: (id: string, text: string) => request<Situation>('PATCH', `/situations/${id}`, { text }),
   saveAnswers: (id: string, answers: Answers) => request<Situation>('PUT', `/situations/${id}/answers`, { answers }),
-  // Server waits up to 20 s per Gemini call and may retry once.
-  analyze: (id: string) => request<Situation>('POST', `/situations/${id}/analyze`, undefined, 50_000),
+  // Server waits up to 30 s per Gemini call and may retry once on bad output.
+  analyze: (id: string) => request<Situation>('POST', `/situations/${id}/analyze`, undefined, 70_000),
   deleteSituation: (id: string) => request<{ ok: true }>('DELETE', `/situations/${id}`),
 };

@@ -43,7 +43,7 @@ async function callOnceInner(o: GeminiOptions): Promise<GeminiOutcome> {
         generationConfig: {
           // Gemini 3 models: keep the default temperature (lower values can loop),
           // and keep thinking short; this is a short structured answer.
-          thinkingConfig: { thinkingLevel: 'low' },
+          thinkingConfig: { thinkingLevel: 'minimal' },
           responseMimeType: 'application/json',
           responseSchema: RESULT_SCHEMA,
         },
