@@ -18,6 +18,8 @@ GEMINI_MODEL = "gemini-3.8-flash"
 # Thinking level sent to Gemini. Unset = model default. Its thought summaries
 # stream to the waiting screen. Faster fallback model: "gemini-3.5-flash-lite".
 GEMINI_THINKING_LEVEL = "low"
+# Tried once if the main model times out, is out of quota or errors.
+GEMINI_FALLBACK_MODEL = "gemini-3.5-flash-lite"
 # Public OAuth client ID from Google Cloud Console (not a secret).
 GOOGLE_CLIENT_ID = "149251525796-4u229rha4nelmd795p3ugfhondr9p6k2.apps.googleusercontent.com"
 

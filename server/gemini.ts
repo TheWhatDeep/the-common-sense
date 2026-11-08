@@ -13,13 +13,31 @@ import { parseResult, RESULT_SCHEMA, type AnalysisResult } from '../shared/resul
 export type GeminiOutcome = (
   | { ok: true; result: AnalysisResult }
   | { ok: false; reason: 'invalid' | 'quota' | 'timeout' | 'blocked' | 'error' }
-) & { httpStatus?: number; ms?: number; attempts?: number; detail?: string; thoughtChars?: number };
+) & {
+  httpStatus?: number;
+  ms?: number;
+  attempts?: number;
+  detail?: string;
+  thoughtChars?: number;
+  /** Milliseconds until Gemini sent its first data chunk (undefined = never). */
+  firstDataMs?: number;
+  /** The model that produced this outcome. */
+  model?: string;
+  /** Set when the fallback model was tried, with why the primary failed. */
+  fallbackFrom?: { model: string; reason: string; httpStatus?: number; firstDataMs?: number; thoughtChars?: number };
+};
 
 export interface GeminiOptions {
   apiKey: string;
   model: string;
   /** Sent as thinkingConfig.thinkingLevel only when set. */
   thinkingLevel?: string;
+  /** Ask for thought summaries (default true). */
+  includeThoughts?: boolean;
+  /** Tried once if the main model times out, is out of quota, or errors. */
+  fallbackModel?: string;
+  /** Called just before switching to the fallback model. */
+  onFallback?: () => void;
   baseUrl?: string;
   systemPrompt: string;
   userPrompt: string;
@@ -58,10 +76,11 @@ async function streamOnce(o: GeminiOptions): Promise<GeminiOutcome> {
     clearTimeout(idle);
     idle = setTimeout(() => ctrl.abort(), idleMs);
   };
+  let firstDataMs: number | undefined;
   const done = (out: GeminiOutcome): GeminiOutcome => {
     clearTimeout(idle);
     clearTimeout(total);
-    return { ...out, ms: Date.now() - started };
+    return { ...out, ms: Date.now() - started, firstDataMs, model: o.model };
   };
 
   let answer = '';
@@ -75,7 +94,14 @@ async function streamOnce(o: GeminiOptions): Promise<GeminiOutcome> {
         contents: [{ role: 'user', parts: [{ text: o.userPrompt }] }],
         generationConfig: {
           // Gemini 3 models: keep the default temperature (lower values can loop).
-          thinkingConfig: { includeThoughts: true, ...(o.thinkingLevel ? { thinkingLevel: o.thinkingLevel } : {}) },
+          ...(o.includeThoughts === false && !o.thinkingLevel
+            ? {}
+            : {
+                thinkingConfig: {
+                  ...(o.includeThoughts === false ? {} : { includeThoughts: true }),
+                  ...(o.thinkingLevel ? { thinkingLevel: o.thinkingLevel } : {}),
+                },
+              }),
           responseMimeType: 'application/json',
           responseSchema: RESULT_SCHEMA,
         },
@@ -118,6 +144,7 @@ async function streamOnce(o: GeminiOptions): Promise<GeminiOutcome> {
       const { value, done: finished } = await reader.read();
       if (finished) break;
       bump();
+      firstDataMs ??= Date.now() - started;
       buffer += value;
       // Server-sent events are separated by a blank line.
       const events = buffer.split(/\r?\n\r?\n/);
@@ -150,11 +177,35 @@ async function errorDetail(res: Response): Promise<string> {
   }
 }
 
-/** Calls Gemini; malformed output is retried exactly once. */
-export async function analyzeWithGemini(o: GeminiOptions): Promise<GeminiOutcome> {
+/** One model: malformed output is retried exactly once. */
+async function withRetry(o: GeminiOptions): Promise<GeminiOutcome> {
   const first = await streamOnce(o);
   if (first.ok || first.reason !== 'invalid') return { ...first, attempts: 1 };
   o.onRetry?.();
   const second = await streamOnce(o);
   return { ...second, attempts: 2, ms: (first.ms ?? 0) + (second.ms ?? 0) };
+}
+
+/**
+ * Calls the main model; if it times out, has no quota or errors, tries the
+ * fallback model once (without thought summaries: lighter models may not
+ * support them).
+ */
+export async function analyzeWithGemini(o: GeminiOptions): Promise<GeminiOutcome> {
+  const primary = await withRetry(o);
+  const canFallBack = !primary.ok && ['timeout', 'quota', 'error'].includes(primary.reason);
+  if (!canFallBack || !o.fallbackModel || o.fallbackModel === o.model) return primary;
+  o.onFallback?.();
+  const fallback = await withRetry({ ...o, model: o.fallbackModel, thinkingLevel: undefined, includeThoughts: false });
+  return {
+    ...fallback,
+    ms: (primary.ms ?? 0) + (fallback.ms ?? 0),
+    fallbackFrom: {
+      model: o.model,
+      reason: primary.ok ? 'ok' : primary.reason,
+      httpStatus: primary.httpStatus,
+      firstDataMs: primary.firstDataMs,
+      thoughtChars: primary.thoughtChars,
+    },
+  };
 }

@@ -445,10 +445,12 @@ route('POST', '/situations/:id/analyze', async (ctx) => {
   const apiKey = ctx.env.GEMINI_API_KEY;
   const model = ctx.env.GEMINI_MODEL || CONFIG.defaultGeminiModel;
 
-  const run = async (onThought?: (t: string) => void, onRetry?: () => void) => {
+  const run = async (onThought?: (t: string) => void, onRetry?: () => void, onFallback?: () => void) => {
     const outcome = await analyzeWithGemini({
       apiKey,
       model,
+      fallbackModel: ctx.env.GEMINI_FALLBACK_MODEL || undefined,
+      onFallback,
       thinkingLevel: ctx.env.GEMINI_THINKING_LEVEL || undefined,
       baseUrl: ctx.env.GEMINI_BASE_URL,
       systemPrompt: buildSystemPrompt(),
@@ -461,7 +463,7 @@ route('POST', '/situations/:id/analyze', async (ctx) => {
     console.log(
       JSON.stringify({
         event: 'gemini_call',
-        model,
+        model: outcome.model ?? model,
         ok: outcome.ok,
         reason: outcome.ok ? undefined : outcome.reason,
         httpStatus: outcome.httpStatus,
@@ -469,6 +471,8 @@ route('POST', '/situations/:id/analyze', async (ctx) => {
         ms: outcome.ms,
         attempts: outcome.attempts,
         thoughtChars: outcome.thoughtChars,
+        firstDataMs: outcome.firstDataMs,
+        fallbackFrom: outcome.fallbackFrom,
       }),
     );
     if (!outcome.ok) {
@@ -482,7 +486,7 @@ route('POST', '/situations/:id/analyze', async (ctx) => {
     const inserted = await ctx.env.DB.prepare(
       'INSERT INTO results (id, situation_id, payload_json, model, created_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(situation_id) DO NOTHING',
     )
-      .bind(newId(), row.id, JSON.stringify(outcome.result), model, ts)
+      .bind(newId(), row.id, JSON.stringify(outcome.result), outcome.model ?? model, ts)
       .run();
     // A parallel request already stored a result: return it and don't count this one twice.
     if (inserted.meta.changes > 0) {
@@ -514,6 +518,7 @@ route('POST', '/situations/:id/analyze', async (ctx) => {
       const situation = await run(
         (text) => send('thought', { text }),
         () => send('retry', {}),
+        () => send('fallback', {}),
       );
       send('result', situation);
     } catch (err) {

@@ -21,6 +21,7 @@ export function Read(props: { id: string; onUsageChange: () => void }) {
   const [state, setState] = useState<State>({ kind: 'loading' });
   const [thoughts, setThoughts] = useState('');
   const [retrying, setRetrying] = useState(false);
+  const [fallback, setFallback] = useState(false);
   const [leaving, setLeaving] = useState(false);
   const [safetyDismissed, setSafetyDismissed] = useState(false);
   const [toast, setToast] = useState('');
@@ -34,6 +35,7 @@ export function Read(props: { id: string; onUsageChange: () => void }) {
       if (s.status !== 'answered') return navigate(`/s/${s.id}/${resumeStep(s.answers)}`, { replace: true });
       setThoughts('');
       setRetrying(false);
+      setFallback(false);
       setState({ kind: 'analyzing' });
       const analyzed = await analyzeStream(s.id, {
         onThought: (t) => setThoughts((prev) => prev + t),
@@ -41,6 +43,7 @@ export function Read(props: { id: string; onUsageChange: () => void }) {
           setRetrying(true);
           setThoughts((prev) => prev + '\n\n');
         },
+        onFallback: () => setFallback(true),
       });
       props.onUsageChange();
       // Fade the thinking view out, then bring the result in.
@@ -61,7 +64,7 @@ export function Read(props: { id: string; onUsageChange: () => void }) {
   }, [props.id]);
 
   if (state.kind === 'loading') return <Loading />;
-  if (state.kind === 'analyzing') return <Thinking text={thoughts} retrying={retrying} leaving={leaving} />;
+  if (state.kind === 'analyzing') return <Thinking text={thoughts} retrying={retrying} fallback={fallback} leaving={leaving} />;
 
   if (state.kind === 'error') {
     const retryable = RETRYABLE.includes(state.code);
@@ -190,12 +193,25 @@ function renderThoughts(text: string) {
   });
 }
 
-function Thinking(props: { text: string; retrying: boolean; leaving: boolean }) {
+function Thinking(props: { text: string; retrying: boolean; fallback: boolean; leaving: boolean }) {
   const box = useRef<HTMLDivElement>(null);
+  const [waited, setWaited] = useState(0);
+  useEffect(() => {
+    const started = Date.now();
+    const t = setInterval(() => setWaited(Math.floor((Date.now() - started) / 1000)), 1000);
+    return () => clearInterval(t);
+  }, []);
   useEffect(() => {
     const el = box.current;
     if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
-  }, [props.text]);
+  }, [props.text, props.fallback]);
+
+  const headline = props.fallback ? 'Switching to a faster model' : props.retrying ? 'Taking another pass' : 'Reading your situation';
+  const waitingNote = props.fallback
+    ? 'The main model was too slow to start, so a lighter one is writing your read. It doesn’t share its working notes.'
+    : waited >= 10
+      ? 'Still waiting for Gemini to start. It can be slow when Google’s free tier is busy.'
+      : 'Getting started…';
 
   return (
     <div class={`screen${props.leaving ? ' fading-out' : ''}`}>
@@ -209,7 +225,7 @@ function Thinking(props: { text: string; retrying: boolean; leaving: boolean }) 
           <PillarsMark />
         </div>
         <h1 class="h-md">
-          {props.retrying ? 'Taking another pass' : 'Reading your situation'}
+          {headline}
           <span class="dots" aria-hidden="true" />
         </h1>
         <p class="lede">Weighing it against each of the four pillars.</p>
@@ -217,7 +233,8 @@ function Thinking(props: { text: string; retrying: boolean; leaving: boolean }) 
       <section class="thinking-panel" aria-live="polite" aria-label="How the AI is thinking">
         <span class="eyebrow">How the AI is thinking</span>
         <div class="thought-stream" ref={box}>
-          {props.text ? renderThoughts(props.text) : <p class="thought-wait">Getting started…</p>}
+          {props.text && renderThoughts(props.text)}
+          {(!props.text || props.fallback) && <p class="thought-wait">{waitingNote}</p>}
         </div>
         <p class="fineprint">These are the model’s working notes, not the final read. You can close this screen; the read will be on your dashboard.</p>
       </section>

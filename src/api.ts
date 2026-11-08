@@ -100,7 +100,7 @@ export const api = {
  */
 export async function analyzeStream(
   id: string,
-  handlers: { onThought?: (text: string) => void; onRetry?: () => void },
+  handlers: { onThought?: (text: string) => void; onRetry?: () => void; onFallback?: () => void },
 ): Promise<Situation> {
   let res: Response;
   try {
@@ -139,6 +139,7 @@ export async function analyzeStream(
       const data = JSON.parse(raw);
       if (event === 'thought') handlers.onThought?.(data.text);
       else if (event === 'retry') handlers.onRetry?.();
+      else if (event === 'fallback') handlers.onFallback?.();
       else if (event === 'result') return data as Situation;
       else if (event === 'error') throw new ApiError(data.status ?? 500, data.error ?? 'error', data.message ?? 'Something went wrong.', data);
     }

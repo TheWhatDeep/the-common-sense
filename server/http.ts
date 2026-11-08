@@ -3,6 +3,7 @@ export interface Env {
   GEMINI_API_KEY?: string;
   GEMINI_MODEL?: string;
   GEMINI_THINKING_LEVEL?: string;
+  GEMINI_FALLBACK_MODEL?: string;
   GEMINI_BASE_URL?: string;
   GOOGLE_CLIENT_ID?: string;
   DEV_LOGIN?: string;

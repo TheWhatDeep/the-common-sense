@@ -433,6 +433,48 @@ describe('streaming analyze', () => {
   });
 });
 
+describe('fallback model', () => {
+  it('when the main model times out, the fallback model writes the read', async () => {
+    env.GEMINI_FALLBACK_MODEL = 'lite-model';
+    const cookie = await signIn('a@x.com');
+    const id = await answeredSituation(cookie);
+    queue.push(
+      () => {
+        throw Object.assign(new Error('timed out'), { name: 'TimeoutError' });
+      },
+      () => geminiReply(GOOD),
+    );
+    const lines: string[] = [];
+    const orig = console.log;
+    console.log = (...a: unknown[]) => lines.push(a.join(' '));
+    let events;
+    try {
+      events = await readEvents(await callStream(`/situations/${id}/analyze`, cookie));
+    } finally {
+      console.log = orig;
+    }
+    expect(events.map((e) => e.event)).toEqual(['start', 'fallback', 'thought', 'result']);
+    expect(geminiCalls[0].url).toContain('/models/test-model:');
+    expect(geminiCalls[1].url).toContain('/models/lite-model:');
+    // The lighter model is called without thinking settings.
+    expect(JSON.parse(String(geminiCalls[1].init.body)).generationConfig.thinkingConfig).toBeUndefined();
+    const log = JSON.parse(lines.find((l) => l.includes('gemini_call'))!);
+    expect(log.model).toBe('lite-model');
+    expect(log.fallbackFrom).toMatchObject({ model: 'test-model', reason: 'timeout' });
+    const s = (await (await call('GET', `/situations/${id}`, { cookie })).json()) as { result: { model: string } };
+    expect(s.result.model).toBe('lite-model');
+  });
+
+  it('does not fall back on blocked content', async () => {
+    env.GEMINI_FALLBACK_MODEL = 'lite-model';
+    const cookie = await signIn('a@x.com');
+    const id = await answeredSituation(cookie);
+    queue.push(() => sse([{ promptFeedback: { blockReason: 'SAFETY' } }]));
+    expect((await call('POST', `/situations/${id}/analyze`, { cookie })).status).toBe(422);
+    expect(geminiCalls).toHaveLength(1);
+  });
+});
+
 describe('saved reads and the dashboard list', () => {
   it('saves and unsaves a finished read, and refuses drafts', async () => {
     const cookie = await signIn('a@x.com');
