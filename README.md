@@ -124,3 +124,4 @@ To change the Gemini model, edit `GEMINI_MODEL` in `wrangler.toml`. To change th
 - **History:** lives under Profile, per the spec; the sidebar matches the mockup.
 - **Notes:** each choice question has an optional "+ Add a note" link (300 characters), shown once the question is answered.
 - **Emergency number:** the Safety notice uses 911 (Philippines) plus "your local emergency number".
+- **Safety notice never traps you:** it has a close (✕) button, moving on is the main button and "Call 911" is offered, not forced. When the AI flags a safety risk, the notice shows first and **See the read** opens the read with a safety banner. (Spec v0.1 said the notice replaces the result.)

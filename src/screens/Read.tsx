@@ -5,7 +5,7 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { PILLAR_NAMES, resumeStep } from '../../shared/questionBank';
 import { analyzeStream, api, ApiError, type Situation } from '../api';
-import { formatTime, Loading, SafetyNotice, Toast } from '../components';
+import { formatTime, Loading, SafetyBanner, SafetyNotice, Toast } from '../components';
 import { CloseIcon, PillarsMark } from '../icons';
 import { go, navigate } from '../router';
 
@@ -108,7 +108,9 @@ export function Read(props: { id: string; onUsageChange: () => void }) {
   const s = state.situation;
   const r = s.result!;
   if (r.safety_flag && !safetyDismissed)
-    return <SafetyNotice fromAnalysis continueLabel="Back to home" onContinue={() => (setSafetyDismissed(true), go('/'))} />;
+    return (
+      <SafetyNotice fromAnalysis continueLabel="See the read" onContinue={() => setSafetyDismissed(true)} onClose={() => go('/')} />
+    );
 
   const toggleSave = async () => {
     setSaving(true);
@@ -136,6 +138,7 @@ export function Read(props: { id: string; onUsageChange: () => void }) {
       <main class="main" style={{ paddingTop: '16px' }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
           <h1 class="h-lg">The read</h1>
+          {r.safety_flag && <SafetyBanner />}
           <p class="quote">{s.text}</p>
         </div>
         <section class="reads" aria-labelledby="reads-title">

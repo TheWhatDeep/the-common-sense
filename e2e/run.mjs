@@ -246,6 +246,7 @@ await check('p1.harm = Yes shows p1.violence; Yes shows the Safety notice before
   await nextBtn().click();
   await page.getByRole('heading', { name: 'Your safety comes first' }).waitFor();
   assert.equal(await page.getByRole('link', { name: 'Call 911' }).getAttribute('href'), 'tel:911');
+  assert.ok(await page.getByRole('button', { name: 'Close' }).isVisible(), 'the notice can be closed');
   await shot('09-safety-notice');
   await page.getByRole('button', { name: 'Continue to Pillar 2' }).click();
   await page.getByText('Pillar 2 · Intellectual Autonomy').waitFor();
@@ -301,12 +302,21 @@ await check('malformed Gemini output retries once, shows an error, and usage is 
   assert.equal((await apiCall('GET', '/me')).body.usage.used, before);
 });
 
-await check('AI safety_flag shows the Safety notice instead of the result', async () => {
+await check('AI safety_flag shows the Safety notice first; the user can still see the read, or close', async () => {
   const s = (await apiCall('POST', '/situations', { text: 'DANGER: someone threatened to hurt me' })).body;
   await apiCall('PUT', `/situations/${s.id}/answers`, { answers: COMPLETE });
   await page.goto(`${BASE}/#/s/${s.id}/read`);
   await page.getByRole('heading', { name: 'Your safety comes first' }).waitFor({ timeout: 30_000 });
   assert.equal(await page.getByRole('heading', { name: 'The read' }).count(), 0);
+  await page.getByRole('button', { name: 'See the read' }).click();
+  await page.getByRole('heading', { name: 'The read' }).waitFor();
+  assert.ok(await page.getByRole('note').isVisible(), 'safety banner on the read');
+  await page.waitForTimeout(900);
+  await shot('09b-flagged-read');
+  await page.reload(); // same address, so reload to open the read fresh
+  await page.getByRole('heading', { name: 'Your safety comes first' }).waitFor();
+  await page.getByRole('button', { name: 'Close' }).click();
+  await page.getByRole('button', { name: 'Start a new situation' }).waitFor();
 });
 
 await check('the sixth analysis in a day is refused and Home shows the reset time', async () => {
@@ -323,6 +333,7 @@ await check('the sixth analysis in a day is refused and Home shows the reset tim
   assert.equal(sixth.status, 429);
   assert.ok(sixth.body.resetsAt);
   await page.goto(BASE + '/#/');
+  await page.reload(); // may already be on Home; reload to pick up the new count
   await page.getByText(/You’ve used today’s 5 reads\. More at/).waitFor();
   assert.ok(await page.getByRole('button', { name: 'Start a new situation' }).isDisabled());
   await shot('11-home-limit');

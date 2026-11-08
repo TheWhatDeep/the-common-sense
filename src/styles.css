@@ -233,6 +233,12 @@ legend { padding: 0; margin-bottom: 6px; }
 .gsi-slot { min-height: 44px; display: flex; justify-content: center; }
 
 
+/* Safety: keep the buttons clear of iOS Safari's floating toolbar. */
+.safety-footer { position: static; background: none; padding-bottom: calc(40px + env(safe-area-inset-bottom)); }
+.safety-banner { display: flex; gap: 10px; align-items: flex-start; padding: 12px 14px; border-radius: 14px; background: var(--danger-soft); color: var(--danger); font-size: 14px; line-height: 1.5; }
+.safety-banner svg { flex: 0 0 auto; width: 20px; height: 20px; margin-top: 1px; }
+.safety-banner a { color: var(--danger); font-weight: 600; }
+
 /* ================= motion ================= */
 :root { --ease-out: cubic-bezier(0.2, 0.7, 0.2, 1); }
 

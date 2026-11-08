@@ -128,7 +128,13 @@ export function Interview(props: { id?: string; step: string }) {
 
   // ---------- safety notice between Pillar 1 and Pillar 2 ----------
   if (props.step === 'safety' && situation)
-    return <SafetyNotice continueLabel="Continue to Pillar 2" onContinue={() => go(`/s/${situation.id}/3`)} />;
+    return (
+      <SafetyNotice
+        continueLabel="Continue to Pillar 2"
+        onContinue={() => go(`/s/${situation.id}/3`)}
+        onClose={() => go('/')} // answers were saved before this screen; the situation stays a draft
+      />
+    );
 
   // ---------- step 1: the situation ----------
   if (props.step === '1') {
