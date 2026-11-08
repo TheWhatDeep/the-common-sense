@@ -1,4 +1,4 @@
-// End-to-end acceptance run: real Pages Functions + local D1 (via wrangler),
+// End-to-end acceptance run: the real Worker + local D1 (via wrangler dev),
 // a mock Gemini, and a 390 px Chromium. Screenshots land in e2e/screens/.
 // Usage: npm run build && npm run e2e
 import assert from 'node:assert/strict';
@@ -43,11 +43,11 @@ const mock = await startMockGemini(8790);
 const wrangler = spawn(
   'npx',
   [
-    'wrangler', 'pages', 'dev', 'dist', '--port', String(PORT), '--persist-to', state,
-    '--binding', `GEMINI_API_KEY=${FAKE_KEY}`,
-    '--binding', 'DEV_LOGIN=true',
-    '--binding', 'GEMINI_BASE_URL=http://127.0.0.1:8790',
-    '--binding', 'GEMINI_MODEL=mock-flash',
+    'wrangler', 'dev', '--port', String(PORT), '--persist-to', state,
+    '--var', `GEMINI_API_KEY:${FAKE_KEY}`,
+    '--var', 'DEV_LOGIN:true',
+    '--var', 'GEMINI_BASE_URL:http://127.0.0.1:8790',
+    '--var', 'GEMINI_MODEL:mock-flash',
   ],
   { env, stdio: ['ignore', 'pipe', 'pipe'] },
 );
@@ -72,7 +72,7 @@ for (let i = 0; ; i++) {
   }
   await new Promise((r) => setTimeout(r, 500));
 }
-console.log('Pages dev server is up. Running flows…\n');
+console.log('Worker dev server is up. Running flows…\n');
 
 const browser = await chromium.launch();
 const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2 });

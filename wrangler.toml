@@ -1,6 +1,12 @@
 name = "the-common-sense"
+main = "server/worker.ts"
 compatibility_date = "2026-10-01"
-pages_build_output_dir = "dist"
+
+# The built app (npm run build). /api/* never matches a file, so it reaches the Worker.
+[assets]
+directory = "./dist"
+binding = "ASSETS"
+run_worker_first = ["/api/*"]
 
 [vars]
 # Swap the Gemini model here without touching code.
@@ -14,4 +20,5 @@ database_name = "common-sense"
 database_id = "6bdf5221-9138-4769-ae11-347a37195edb"
 migrations_dir = "migrations"
 
-# Secret, set with: npx wrangler pages secret put GEMINI_API_KEY
+# Secret, set in the dashboard (Settings → Variables and Secrets) or with:
+#   npx wrangler secret put GEMINI_API_KEY

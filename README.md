@@ -10,7 +10,7 @@ A mobile-first PWA that walks you through a real situation using the **Four Pill
 | Piece | Choice |
 | --- | --- |
 | Frontend | Preact + Vite + TypeScript (about 15 KB of JS, gzipped) |
-| Hosting + API | Cloudflare Pages + Pages Functions |
+| Hosting + API | One Cloudflare Worker: serves the built app and runs `/api` |
 | Database | Cloudflare D1 |
 | AI | Gemini API (free tier), called only from Functions |
 | Sign-in | Google sign-in (ID token verified server-side) |
@@ -22,13 +22,13 @@ shared/        Used by both browser and server
   config.ts      Daily cap, character limits, timeouts (one place to change each)
   questionBank.ts  The interview: questions, branching, validation (versioned)
   result.ts      AI output schema + strict validator
-server/        Runs in Pages Functions
+server/        Runs in the Cloudflare Worker
   api.ts         Every /api route
   gemini.ts      The only code that talks to Gemini (retry once on bad JSON)
   prompt.ts      System prompt: guardrails + the framework text
   google.ts      Google ID token verification
   dates.ts       Asia/Manila day boundaries for the daily cap
-functions/api/[[path]].ts   Hands /api/* to server/api.ts
+  worker.ts      Worker entry: /api/* → api.ts, everything else → the built app
 migrations/    D1 schema
 src/           The PWA (screens in src/screens)
 public/        Manifest, service worker, icons, security headers
@@ -53,7 +53,7 @@ npm run db:migrate:local
 ```
 
 ```bash
-npm run build && npm run pages:dev
+npm run build && npm run worker:dev
 ```
 
 Open http://localhost:8788. With `DEV_LOGIN=true` you get a "Dev sign-in" button, which only works on localhost.
@@ -76,7 +76,7 @@ Runs 41 unit and API tests: branching, validation, ownership 404s, usage cap, re
 npm run build && npm run e2e
 ```
 
-Runs the real Functions and D1 locally with a 390 px browser, walks every screen, and saves screenshots to `e2e/screens/`.
+Runs the real Worker and D1 locally with a 390 px browser, walks every screen, and saves screenshots to `e2e/screens/`.
 
 ```bash
 npm run build && npm run check:bundle
@@ -86,36 +86,33 @@ Scans the built client for the Gemini key or endpoint.
 
 ## Deploy to Cloudflare
 
-1. Create the database, and copy the printed `database_id` into `wrangler.toml`:
+Production is already wired up: `wrangler.toml` points at the `common-sense` D1 database, and its tables were created in the D1 console.
 
-   ```bash
-   npx wrangler d1 create common-sense
-   ```
+**From the dashboard (Workers Builds):** Workers & Pages → Create → Import a repository → `the-common-sense`.
+- Build command: `npm run build`
+- Deploy command: `npx wrangler deploy`
 
-2. Apply the schema:
+Then add the Gemini key under the Worker's **Settings → Variables and Secrets** as a **Secret** named `GEMINI_API_KEY`, and redeploy. Every push to `main` deploys again.
 
-   ```bash
-   npm run db:migrate:remote
-   ```
+**From your computer:**
 
-3. Create a Google OAuth client (Google Cloud Console → APIs & Services → Credentials → OAuth client ID → Web application). Add your Pages URL (e.g. `https://the-common-sense.pages.dev`) and `http://localhost:8788` under **Authorized JavaScript origins**. Put the client ID in `GOOGLE_CLIENT_ID` in `wrangler.toml`. It is public, not a secret.
+```bash
+npx wrangler secret put GEMINI_API_KEY
+```
 
-4. Add the Gemini key as a secret. It is never in the code or the client:
+```bash
+npm run deploy
+```
 
-   ```bash
-   npx wrangler pages secret put GEMINI_API_KEY
-   ```
+**Google sign-in:** create an OAuth client (Google Cloud Console → Google Auth Platform → Clients → Web application). Add the Worker's address (e.g. `https://the-common-sense.<your-subdomain>.workers.dev`) and `http://localhost:8788` as **Authorized JavaScript origins**, then put the Client ID in `GOOGLE_CLIENT_ID` in `wrangler.toml`. It is public, not a secret.
 
-5. Deploy:
-
-   ```bash
-   npm run deploy
-   ```
+**Later schema changes:** the first schema was created by hand in the D1 console, so before the first `wrangler d1 migrations apply --remote`, record `0001_init.sql` as applied, or wrangler will try to create the tables again.
 
 To change the Gemini model, edit `GEMINI_MODEL` in `wrangler.toml`. To change the daily cap or limits, edit `shared/config.ts`.
 
 ## Choices made where the spec left room
 
+- **Workers instead of Pages:** the spec locked Pages + Pages Functions, but Cloudflare's dashboard no longer offers new Pages projects. One Worker with static assets does the same job on the same platform: same D1, same secret handling, same code.
 - **Sign-in:** Google sign-in, as the spec recommended. `users` gains a `google_sub` column to identify the Google account.
 - **Sessions:** the cookie holds a random token; the database stores only its SHA-256 hash, so a database leak can't be replayed as logins.
 - **Editing the situation text:** going back to step 1 needs `PATCH /api/situations/:id`, which the spec's endpoint table didn't list.

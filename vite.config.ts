@@ -5,7 +5,7 @@ export default defineConfig({
   plugins: [preact()],
   build: { outDir: 'dist', sourcemap: false },
   server: {
-    // `npm run dev` serves the UI; API calls go to `wrangler pages dev` on 8788.
+    // `npm run dev` serves the UI; API calls go to `npm run worker:dev` on 8788.
     proxy: { '/api': 'http://localhost:8788' },
   },
   test: {
