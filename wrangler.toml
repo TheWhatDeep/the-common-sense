@@ -10,7 +10,7 @@ run_worker_first = ["/api/*"]
 
 [vars]
 # Swap the Gemini model here without touching code.
-GEMINI_MODEL = "gemini-2.5-flash"
+GEMINI_MODEL = "gemini-3.8-flash"
 # Public OAuth client ID from Google Cloud Console (not a secret).
 GOOGLE_CLIENT_ID = "149251525796-4u229rha4nelmd795p3ugfhondr9p6k2.apps.googleusercontent.com"
 

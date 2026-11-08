@@ -7,7 +7,7 @@ export const CONFIG = {
   situationMaxChars: 1000,
   noteMaxChars: 300,
   /** Fallback when the GEMINI_MODEL var is not set. */
-  defaultGeminiModel: 'gemini-2.5-flash',
+  defaultGeminiModel: 'gemini-3.8-flash',
   geminiTimeoutMs: 20_000,
   sessionDays: 30,
 } as const;
