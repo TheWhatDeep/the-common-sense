@@ -533,6 +533,29 @@ describe('deletion', () => {
       expect((raw.prepare(`SELECT COUNT(*) AS n FROM ${t}`).get() as { n: number }).n).toBe(0);
   });
 
+  it("deleting all situations clears the user's history but keeps the account, the daily count and others' data", async () => {
+    const a = await signIn('a@x.com');
+    const b = await signIn('b@x.com');
+    for (const c of [a, b]) {
+      const id = await answeredSituation(c);
+      queue.push(() => geminiReply(GOOD));
+      await call('POST', `/situations/${id}/analyze`, { cookie: c });
+    }
+    await v1Situation(a, COMPLETE);
+    expect((await call('DELETE', '/situations')).status).toBe(401);
+    const res = await call('DELETE', '/situations', { cookie: a });
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { deleted: number }).deleted).toBe(2);
+    const count = (t: string) => (raw.prepare(`SELECT COUNT(*) AS n FROM ${t}`).get() as { n: number }).n;
+    expect(count('situations')).toBe(1); // B's
+    expect(count('results')).toBe(1);
+    expect(count('answers')).toBe(0);
+    const me = (await (await call('GET', '/me', { cookie: a })).json()) as { usage: { used: number } };
+    expect(me.usage.used).toBe(1); // still counted
+    const list = (await (await call('GET', '/situations', { cookie: a })).json()) as { situations: unknown[] };
+    expect(list.situations).toHaveLength(0);
+  });
+
   it("deleting the account removes all of the user's rows and nobody else's", async () => {
     const a = await signIn('a@x.com');
     const b = await signIn('b@x.com');

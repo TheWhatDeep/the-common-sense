@@ -13,7 +13,7 @@ export function DisclosureText() {
         people at Google may read it.
       </p>
       <p>Leave out names, addresses and anything you wouldn't want a stranger to read.</p>
-      <p>Your situations stay in your account until you delete them. You can delete one, or your whole account, at any time.</p>
+      <p>Your situations stay in your account until you delete them. You can delete one, all of them, or your whole account, at any time.</p>
     </>
   );
 }

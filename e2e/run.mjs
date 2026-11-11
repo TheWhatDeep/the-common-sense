@@ -321,6 +321,35 @@ await check('PWA: manifest, icons and service worker are served', async () => {
   assert.ok(reg, 'service worker active');
 });
 
+await check('deleting: a read from its screen, a draft from its screen, everything from Settings', async () => {
+  const usedBefore = (await apiCall('GET', '/me')).body.usage.used;
+  // 1. A read, from the result screen
+  const read = (await apiCall('GET', '/situations')).body.situations.find((x) => x.status === 'analyzed');
+  await page.goto(`${BASE}/#/s/${read.id}/read`);
+  await page.getByRole('heading', { name: 'The read' }).waitFor();
+  await page.getByRole('button', { name: 'Delete this read' }).click();
+  await page.getByRole('alertdialog').waitFor();
+  await shot('16-delete-read');
+  await page.getByRole('button', { name: 'Delete', exact: true }).click();
+  await page.getByRole('button', { name: 'Start a new situation' }).waitFor();
+  assert.equal((await apiCall('GET', `/situations/${read.id}`)).status, 404);
+  // 2. A draft, from its situation screen
+  const draft = (await apiCall('POST', '/situations', { text: 'A draft to delete' })).body;
+  await page.goto(`${BASE}/#/s/${draft.id}/1`);
+  await page.getByRole('button', { name: 'Delete this situation' }).click();
+  await page.getByRole('button', { name: 'Delete', exact: true }).click();
+  await page.getByRole('button', { name: 'Start a new situation' }).waitFor();
+  assert.equal((await apiCall('GET', `/situations/${draft.id}`)).status, 404);
+  // 3. Everything, from Settings; the account and today's count stay
+  await page.goto(BASE + '/#/settings');
+  await page.getByRole('button', { name: 'Delete all my situations' }).click();
+  await page.getByRole('button', { name: 'Delete all', exact: true }).click();
+  await page.getByText(/situations? deleted\./).waitFor();
+  await shot('17-settings-deleted-all');
+  assert.equal((await apiCall('GET', '/situations')).body.situations.length, 0);
+  assert.equal((await apiCall('GET', '/me')).body.usage.used, usedBefore);
+});
+
 await check('settings shows the disclosure; deleting the account signs out', async () => {
   await page.goto(BASE + '/#/settings');
   await page.getByRole('heading', { name: 'Your data' }).waitFor();

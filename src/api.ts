@@ -91,6 +91,7 @@ export const api = {
   analyze: (id: string) => request<Situation>('POST', `/situations/${id}/analyze`, undefined, 70_000),
   setSaved: (id: string, saved: boolean) => request<Situation>('PUT', `/situations/${id}/saved`, { saved }),
   deleteSituation: (id: string) => request<{ ok: true }>('DELETE', `/situations/${id}`),
+  deleteAllSituations: () => request<{ ok: true; deleted: number }>('DELETE', '/situations'),
 };
 
 /**

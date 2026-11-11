@@ -549,6 +549,23 @@ route('PUT', '/situations/:id/saved', async (ctx) => {
   return json(await situationPayload(ctx, await loadSituation(ctx, user.id, row.id)));
 });
 
+/**
+ * Deletes all of the user's situations, answers and reads, keeping the account.
+ * The daily usage count stays, so deleting never gives extra reads.
+ */
+route('DELETE', '/situations', async (ctx) => {
+  const user = await requireUser(ctx);
+  const db = ctx.env.DB;
+  const mine = 'SELECT id FROM situations WHERE user_id = ?';
+  const { results } = await db.prepare('SELECT COUNT(*) AS n FROM situations WHERE user_id = ?').bind(user.id).all<{ n: number }>();
+  await db.batch([
+    db.prepare(`DELETE FROM answers WHERE situation_id IN (${mine})`).bind(user.id),
+    db.prepare(`DELETE FROM results WHERE situation_id IN (${mine})`).bind(user.id),
+    db.prepare('DELETE FROM situations WHERE user_id = ?').bind(user.id),
+  ]);
+  return json({ ok: true, deleted: results[0]?.n ?? 0 });
+});
+
 route('DELETE', '/situations/:id', async (ctx) => {
   const user = await requireUser(ctx);
   const row = await loadSituation(ctx, user.id, ctx.params.id);

@@ -7,8 +7,8 @@ import { pillarOf } from '../../shared/pillars';
 import { getBank, interviewComplete, resumeStep } from '../../shared/questionBank';
 import { FACT_LABELS, OPTION_LABELS, type Fact } from '../../shared/reading';
 import { analyzeStream, api, ApiError, type Situation } from '../api';
-import { formatTime, Loading, SafetyBanner, SafetyNotice, Toast } from '../components';
-import { CloseIcon } from '../icons';
+import { ConfirmDialog, formatTime, Loading, SafetyBanner, SafetyNotice, Toast } from '../components';
+import { CloseIcon, TrashIcon } from '../icons';
 import { BrandMark } from '../components';
 import { go, navigate } from '../router';
 
@@ -28,6 +28,8 @@ export function Read(props: { id: string; onUsageChange: () => void }) {
   const [safetyDismissed, setSafetyDismissed] = useState(false);
   const [toast, setToast] = useState('');
   const [saving, setSaving] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const run = async () => {
     try {
@@ -191,7 +193,31 @@ export function Read(props: { id: string; onUsageChange: () => void }) {
         <button class={`btn ${s.saved ? 'btn-primary' : 'btn-outline'}`} onClick={() => go('/new')}>
           New situation
         </button>
+        <button class="btn btn-ghost btn-danger-text" onClick={() => setConfirmDelete(true)}>
+          <TrashIcon />
+          Delete this read
+        </button>
       </footer>
+      {confirmDelete && (
+        <ConfirmDialog
+          title="Delete this read?"
+          body="Your description and this read are deleted for good. This can’t be undone."
+          confirmLabel="Delete"
+          busy={deleting}
+          onConfirm={async () => {
+            setDeleting(true);
+            try {
+              await api.deleteSituation(s.id);
+              go('/');
+            } catch (e) {
+              setDeleting(false);
+              setConfirmDelete(false);
+              setToast(e instanceof ApiError ? e.message : 'Could not delete. Try again.');
+            }
+          }}
+          onCancel={() => setConfirmDelete(false)}
+        />
+      )}
       {toast && <Toast message={toast} onDone={() => setToast('')} />}
     </div>
   );

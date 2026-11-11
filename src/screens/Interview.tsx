@@ -19,8 +19,8 @@ import {
   type Question,
 } from '../../shared/questionBank';
 import { api, ApiError, type Situation } from '../api';
-import { Loading, SafetyNotice } from '../components';
-import { BackIcon, CloseIcon } from '../icons';
+import { ConfirmDialog, Loading, SafetyNotice } from '../components';
+import { BackIcon, CloseIcon, TrashIcon } from '../icons';
 import { go, navigate } from '../router';
 
 /** Hands a just-created situation to the next route without refetching it. */
@@ -63,6 +63,7 @@ export function Interview(props: { id?: string; step: string }) {
   const [answers, setAnswers] = useState<Answers>(situation?.answers ?? {});
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const savedAnswers = useRef(JSON.stringify(situation?.answers ?? {}));
 
   useEffect(() => {
@@ -171,10 +172,15 @@ export function Interview(props: { id?: string; step: string }) {
     return (
       <div class="screen" key="step-1">
         {freeText ? (
-          <header class="topbar">
+          <header class="topbar" style={{ justifyContent: 'space-between', paddingRight: '12px' }}>
             <button class="icon-btn" aria-label="Close" onClick={close}>
               <CloseIcon />
             </button>
+            {situation && (
+              <button class="icon-btn" aria-label="Delete this situation" onClick={() => setConfirmDelete(true)}>
+                <TrashIcon />
+              </button>
+            )}
           </header>
         ) : (
           <Header step={1} backIsClose onBack={close} onClose={close} />
@@ -210,6 +216,27 @@ export function Interview(props: { id?: string; step: string }) {
             {saving ? 'Saving…' : freeText ? 'Get the read' : 'Continue'}
           </button>
         </footer>
+        {confirmDelete && situation && (
+          <ConfirmDialog
+            title="Delete this situation?"
+            body="Your description is deleted for good. This can’t be undone."
+            confirmLabel="Delete"
+            busy={saving}
+            onConfirm={async () => {
+              setSaving(true);
+              try {
+                await api.deleteSituation(situation.id);
+                situationCache.delete(situation.id);
+                go('/');
+              } catch (e) {
+                setSaving(false);
+                setConfirmDelete(false);
+                setError(e instanceof ApiError ? e.message : 'Could not delete. Try again.');
+              }
+            }}
+            onCancel={() => setConfirmDelete(false)}
+          />
+        )}
       </div>
     );
   }

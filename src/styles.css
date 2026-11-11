@@ -104,6 +104,8 @@ h1, h2, h3 { margin: 0; }
 .btn-outline { background: transparent; border-color: var(--accent); color: var(--accent); }
 .btn-danger { background: var(--danger); color: #fff; }
 .btn-ghost { background: transparent; color: var(--muted); min-height: 44px; font-weight: 500; font-size: 15px; }
+.btn-danger-text { color: var(--danger); }
+.btn-danger-text svg { width: 18px; height: 18px; }
 .link-btn { border: 0; background: none; padding: 4px 0; color: var(--accent); font-size: 14px; font-weight: 600; align-self: flex-start; }
 
 /* ---------- home ---------- */
