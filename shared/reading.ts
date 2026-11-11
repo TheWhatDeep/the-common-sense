@@ -58,16 +58,16 @@ export type Facts = Record<FactKey, Fact>;
 
 export const OPTION_DEFS = [
   { kind: 'get_safe', label: 'Get to safety', fallback: 'You could get yourself and anyone at risk somewhere safe, and call emergency services if anyone is in danger.' },
-  { kind: 'disengage', label: 'Disengage', fallback: 'You could step away from the aggression without retaliating (Pillar 1).' },
-  { kind: 'attend_without_participating', label: 'Be present without taking part', fallback: 'You could attend or show support without doing it yourself; presence isn’t participation (Pillar 1).' },
-  { kind: 'decline_respectfully', label: 'Decline respectfully', fallback: 'You could decline to do it yourself while respecting their right to their choice (Pillar 1).' },
-  { kind: 'respect_their_choice', label: 'Respect their choice', fallback: 'You could leave their way of life to them; disagreement isn’t harm (Pillar 1).' },
-  { kind: 'examine_first', label: 'Examine it first', fallback: 'You could take time to check whether this is a considered view or a reaction (Pillar 2).' },
-  { kind: 'stop_pressuring', label: 'Ease off the pressure', fallback: 'You could share your view without pushing it on someone who doesn’t want it (Pillar 2).' },
-  { kind: 'accept', label: 'Accept their decision', fallback: 'You could accept the decision as theirs to make, even while disagreeing (Pillar 4).' },
-  { kind: 'raise_through_proper_channels', label: 'Raise it through proper channels', fallback: 'You could disagree through legitimate means: talking it through, a complaint, a vote, or the courts (Pillar 4).' },
-  { kind: 'walk_away_lawfully', label: 'Walk away lawfully', fallback: 'You could put lawful distance between you and what you can’t accept (Pillars 1, 3, 4).' },
-  { kind: 'seek_lawful_help', label: 'Get lawful help', fallback: 'A lawyer, a social worker or the proper authority could help with the legal side (Pillars 3, 4).' },
+  { kind: 'disengage', label: 'Disengage', fallback: 'You could step away from the aggression without retaliating (Live and let live).' },
+  { kind: 'attend_without_participating', label: 'Be present without taking part', fallback: 'You could attend or show support without doing it yourself; being there isn’t taking part (Live and let live).' },
+  { kind: 'decline_respectfully', label: 'Decline respectfully', fallback: 'You could decline to do it yourself while respecting their right to their choice (Live and let live).' },
+  { kind: 'respect_their_choice', label: 'Respect their choice', fallback: 'You could leave their way of life to them; disagreement isn’t harm (Live and let live).' },
+  { kind: 'examine_first', label: 'Examine it first', fallback: 'You could take time to check whether this is a considered view or a reaction (Think for yourself).' },
+  { kind: 'stop_pressuring', label: 'Ease off the pressure', fallback: 'You could share your view without pushing it on someone who doesn’t want it (Think for yourself).' },
+  { kind: 'accept', label: 'Accept their decision', fallback: 'You could accept the decision as theirs to make, even while disagreeing (Disagree fairly).' },
+  { kind: 'raise_through_proper_channels', label: 'Raise it through proper channels', fallback: 'You could disagree through legitimate means: talking it through, a complaint, a vote, or the courts (Disagree fairly).' },
+  { kind: 'walk_away_lawfully', label: 'Walk away lawfully', fallback: 'You could put lawful distance between you and what you can’t accept (Live and let live, Children come first, Disagree fairly).' },
+  { kind: 'seek_lawful_help', label: 'Get lawful help', fallback: 'A lawyer, a social worker or the proper authority could help with the legal side (Children come first, Disagree fairly).' },
 ] as const;
 
 export type OptionKind = (typeof OPTION_DEFS)[number]['kind'];

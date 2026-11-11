@@ -1,5 +1,6 @@
 import type { ComponentChildren } from 'preact';
 import { useEffect } from 'preact/hooks';
+import { ACTIVE_SET } from '../shared/pillars';
 import { AlertIcon, CloseIcon } from './icons';
 
 export function ConfirmDialog(props: {
@@ -136,4 +137,17 @@ export function formatTime(iso: string): string {
 
 export function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+/** The brand mark: four bars in the pillar colors, rising like pillars. */
+export function BrandMark(props: { size?: number }) {
+  const h = props.size ?? 16;
+  const heights = [0.55, 0.8, 1, 0.7];
+  return (
+    <span class="brand-dots" aria-hidden="true" style={{ height: `${h}px` }}>
+      {ACTIVE_SET.pillars.map((p, i) => (
+        <i key={p.n} style={{ height: `${Math.round(h * heights[i])}px`, width: `${Math.max(3, Math.round(h / 4))}px`, background: p.color }} />
+      ))}
+    </span>
+  );
 }

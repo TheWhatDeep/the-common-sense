@@ -1,14 +1,14 @@
 {
   "name": "The Common Sense",
   "short_name": "Common Sense",
-  "description": "Walk through a real situation with the Four Pillars of Respect. You make the call.",
+  "description": "Think it through, the common-sense way. Describe a hard situation and get a clear read through four simple pillars. You make the call.",
   "id": "/",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#f4f5f2",
-  "theme_color": "#f4f5f2",
+  "background_color": "#f5f7fb",
+  "theme_color": "#f5f7fb",
   "icons": [
     { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
     { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },

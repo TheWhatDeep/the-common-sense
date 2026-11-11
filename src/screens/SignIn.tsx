@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { api, ApiError, type Me } from '../api';
-import { PillarsMark } from '../icons';
+import { BrandMark } from '../components';
 
 declare global {
   interface Window {
@@ -82,10 +82,10 @@ export function SignIn(props: { onSignedIn: (me: Me) => void }) {
     <div class="screen">
       <div class="center">
         <div class="brand-mark">
-          <PillarsMark />
+          <BrandMark size={40} />
         </div>
         <h1 class="h-xl">The Common Sense</h1>
-        <p class="lede">Walk through a real situation with the four pillars. You make the call.</p>
+        <p class="lede">Think it through, the common-sense way. Describe a hard situation, get a clear read through four simple pillars, and make the call yourself.</p>
         <div style={{ height: '8px' }} />
         {config?.googleClientId && <div class="gsi-slot" ref={slot} aria-busy={state === 'submitting'} />}
         {config?.devLogin && (

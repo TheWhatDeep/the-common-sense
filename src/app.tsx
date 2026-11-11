@@ -61,6 +61,7 @@ export function App() {
   if ((m = match('/s/:id/:step', path))) return <Interview key={m.id} id={m.id} step={m.step} />;
   if (path === '/profile') return <Profile me={me} />;
   if (path === '/pillars') return <Pillars />;
+  if ((m = match('/pillars/:n', path))) return <Pillars key={m.n} open={Number(m.n)} />;
   if (path === '/settings')
     return <Settings onDeleted={() => (situationCache.clear(), setAuth({ kind: 'signed-out' }), navigate('/', { replace: true }))} />;
   if (path !== '/') navigate('/', { replace: true });

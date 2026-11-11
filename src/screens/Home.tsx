@@ -1,11 +1,12 @@
 /**
- * The dashboard. With nothing saved yet it is exactly the mockup's Home
- * (big plus, "What's the situation?"). Once there is history it adds
- * Drafts, Saved and Recent reads below a smaller plus.
+ * The dashboard: a hero with the "What's the situation?" button, the four
+ * pillars as tiles, then drafts, saved reads and recent reads.
  */
 import { useEffect, useState } from 'preact/hooks';
 import { api, type Me, type SituationSummary } from '../api';
 import { formatTime, initials } from '../components';
+import { ACTIVE_SET } from '../../shared/pillars';
+import { BrandMark } from '../components';
 import { LogoutIcon, MenuIcon, PillarsIcon, PlusIcon, ProfileIcon, SettingsIcon } from '../icons';
 import { go } from '../router';
 import { SituationCard } from '../SituationCard';
@@ -41,44 +42,47 @@ export function Home(props: { me: Me; refreshMe: () => void; onSignOut: () => vo
   const recent = (items ?? []).filter((s) => s.status === 'analyzed' && !s.saved).slice(0, RECENT_LIMIT);
   const hasHistory = drafts.length + saved.length + recent.length > 0;
 
-  const plus = (
-    <button class="plus" aria-label="Start a new situation" disabled={limited} onClick={() => go('/new')}>
-      <PlusIcon />
-    </button>
-  );
-  const copy = (
-    <div class="home-copy">
-      <h1 class={hasHistory ? 'h-md' : 'h-xl'}>What’s the situation?</h1>
-      {limited ? (
-        <p class="limit-note" role="status">
-          You’ve used today’s {usage.cap} reads. More at {formatTime(usage.resetsAt)}.
-        </p>
-      ) : (
-        <p class="lede">Walk through it with the four pillars.</p>
-      )}
-    </div>
-  );
-
   return (
     <div class="screen">
       <header class="topbar">
         <button class="icon-btn" aria-label="Open menu" aria-expanded={menuOpen} onClick={() => setMenuOpen(true)}>
           <MenuIcon />
         </button>
-        <span class="title">The Common Sense</span>
+        <span class="title brand">
+          <BrandMark />
+          The Common Sense
+        </span>
       </header>
 
-      {!hasHistory ? (
-        <main class="home-main">
-          {plus}
-          {copy}
-        </main>
-      ) : (
-        <main style={{ flex: 1 }}>
-          <div class="dash-hero">
-            {plus}
-            {copy}
-          </div>
+      <main class="home-body">
+        <section class={`hero${hasHistory ? ' compact' : ''}`}>
+          <span class="eyebrow">{ACTIVE_SET.title}</span>
+          <h1>Think it through, the common-sense way.</h1>
+          {!hasHistory && <p class="lede">Describe what’s going on. Get a clear read through four simple pillars. You make the call.</p>}
+          <button class="cta" aria-label="Start a new situation" disabled={limited} onClick={() => go('/new')}>
+            What’s the situation?
+            <span class="cta-plus" aria-hidden="true">
+              <PlusIcon />
+            </span>
+          </button>
+          {limited && (
+            <p class="limit-note" role="status">
+              You’ve used today’s {usage.cap} reads. More at {formatTime(usage.resetsAt)}.
+            </p>
+          )}
+        </section>
+
+        <div class="pillar-grid stagger" aria-label="The pillars">
+          {ACTIVE_SET.pillars.map((p, i) => (
+            <button class="pillar-tile" key={p.n} style={{ '--pc': p.color, '--i': i }} onClick={() => go(`/pillars/${p.n}`)}>
+              <i aria-hidden="true">{p.n}</i>
+              <b>{p.name}</b>
+              <small>{p.short}</small>
+            </button>
+          ))}
+        </div>
+
+        {hasHistory && (
           <div class="dash-sections stagger">
             {drafts.length > 0 && (
               <Section title="Pick up where you left off" i={0} items={drafts.slice(0, DRAFT_LIMIT)} more={drafts.length > DRAFT_LIMIT} />
@@ -86,8 +90,9 @@ export function Home(props: { me: Me; refreshMe: () => void; onSignOut: () => vo
             {saved.length > 0 && <Section title="Saved" i={1} items={saved} showBottomLine />}
             {recent.length > 0 && <Section title="Recent reads" i={2} items={recent} showBottomLine more />}
           </div>
-        </main>
-      )}
+        )}
+        <div style={{ height: '24px' }} />
+      </main>
 
       {menuOpen && (
         <>

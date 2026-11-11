@@ -120,6 +120,7 @@ await check('a new user cannot reach the Situation screen without accepting the 
 await check('home and sidebar match the mockup layout', async () => {
   await page.goto(BASE + '/#/');
   await page.getByRole('button', { name: 'Start a new situation' }).waitFor();
+  await page.waitForTimeout(900); // let the entrance animation finish
   await shot('02-home');
   await page.getByRole('button', { name: 'Open menu' }).click();
   await page.getByRole('navigation', { name: 'Main menu' }).waitFor();
@@ -223,16 +224,20 @@ await check('the dashboard shows situations waiting for a read and saved reads',
   await page.getByRole('heading', { name: 'The read' }).waitFor({ timeout: 30_000 }); // opens straight into the read
 });
 
-await check('the Pillars page explains the pillars and how to use them', async () => {
+await check('the Pillars page explains the pillars; Home tiles open a pillar', async () => {
   await page.goto(BASE + '/#/');
   await page.getByRole('button', { name: 'Open menu' }).click();
   await page.getByRole('button', { name: 'Pillars' }).click();
-  await page.getByRole('heading', { name: 'The Four Pillars of Respect' }).waitFor();
+  await page.getByRole('heading', { name: 'The four pillars of common sense' }).waitFor();
   await page.getByRole('heading', { name: 'How to use them' }).waitFor();
-  await page.locator('.pillar-card summary', { hasText: 'Familial Realism' }).click();
-  await page.getByText('The family exists for the child, not the other way around.', { exact: false }).first().waitFor();
   await page.waitForTimeout(800);
   await shot('15-pillars');
+  await page.goto(BASE + '/#/');
+  await page.locator('.pillar-tile', { hasText: 'Children come first' }).click();
+  await page.locator('#pillar-3[open]').waitFor();
+  await page.getByText('The family exists for the child, not the other way around.', { exact: false }).first().waitFor();
+  await page.waitForTimeout(900);
+  await shot('15b-pillar-open');
 });
 
 await check('malformed Gemini output retries once, shows an error, and usage is unchanged', async () => {

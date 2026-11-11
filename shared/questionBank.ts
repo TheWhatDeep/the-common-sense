@@ -6,6 +6,7 @@
  * old versions in BANKS so situations saved under them stay readable.
  */
 import { CONFIG } from './config';
+import { ACTIVE_SET } from './pillars';
 
 export interface Option {
   value: string;
@@ -162,12 +163,8 @@ export function isFreeText(version: number): boolean {
   return getBank(version).length === 0;
 }
 
-export const PILLAR_NAMES: Record<number, string> = {
-  1: 'Belief Plurality',
-  2: 'Intellectual Autonomy',
-  3: 'Familial Realism',
-  4: 'Authority & Equality',
-};
+/** Pillar names from the active pillar set (shared/pillars.ts). */
+export const PILLAR_NAMES: Record<number, string> = Object.fromEntries(ACTIVE_SET.pillars.map((p) => [p.n, p.name]));
 
 export interface AnswerInput {
   value: string;

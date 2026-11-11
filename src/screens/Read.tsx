@@ -3,11 +3,13 @@
  * While Gemini works, its thought summaries stream into the waiting screen.
  */
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { getBank, interviewComplete, PILLAR_NAMES, resumeStep } from '../../shared/questionBank';
+import { pillarOf } from '../../shared/pillars';
+import { getBank, interviewComplete, resumeStep } from '../../shared/questionBank';
 import { FACT_LABELS, OPTION_LABELS, type Fact } from '../../shared/reading';
 import { analyzeStream, api, ApiError, type Situation } from '../api';
 import { formatTime, Loading, SafetyBanner, SafetyNotice, Toast } from '../components';
-import { CloseIcon, PillarsMark } from '../icons';
+import { CloseIcon } from '../icons';
+import { BrandMark } from '../components';
 import { go, navigate } from '../router';
 
 type State =
@@ -147,13 +149,13 @@ export function Read(props: { id: string; onUsageChange: () => void }) {
             How the pillars see it
           </h2>
           {r.pillars.map((p, i) => (
-            <div class={`read${p.applies ? '' : ' na'}`} key={p.pillar} style={{ '--i': i }}>
+            <div class={`read${p.applies ? '' : ' na'}`} key={p.pillar} style={{ '--i': i, '--pc': pillarOf(p.pillar).color }}>
               <span class="num" aria-hidden="true">
                 {p.pillar}
               </span>
               <div class="read-body">
                 <b>
-                  {PILLAR_NAMES[p.pillar]}
+                  {pillarOf(p.pillar).name}
                   {!p.applies && <span class="na-tag">Doesn’t apply</span>}
                 </b>
                 <span>{p.read}</span>
@@ -262,13 +264,13 @@ function Thinking(props: { text: string; retrying: boolean; leaving: boolean }) 
       </header>
       <div class="thinking-head">
         <div class="thinking-mark" aria-hidden="true">
-          <PillarsMark />
+          <BrandMark size={34} />
         </div>
         <h1 class="h-md">
           {headline}
           <span class="dots" aria-hidden="true" />
         </h1>
-        <p class="lede">Weighing it against each of the four pillars.</p>
+        <p class="lede">Weighing it against each pillar of common sense.</p>
       </div>
       <section class="thinking-panel" aria-live="polite" aria-label="How the AI is thinking">
         <span class="eyebrow">How the AI is thinking</span>

@@ -1,6 +1,6 @@
 // The Common Sense service worker: caches the app shell so it opens offline.
 // API calls always go to the network; analysis needs a connection.
-const VERSION = 'tcs-v1';
+const VERSION = 'tcs-v2';
 const SHELL = ['/', '/manifest.webmanifest', '/icons/icon-192.png', '/icons/favicon.svg'];
 
 self.addEventListener('install', (event) => {

@@ -3,7 +3,8 @@
 A mobile-first PWA that walks you through a real situation using the **Four Pillars of Respect**, then returns an AI-generated read. The app guides; you decide.
 
 - Spec: [`docs/spec-v0.1.md`](docs/spec-v0.1.md)
-- Framework: [`docs/four-pillars-of-respect.md`](docs/four-pillars-of-respect.md)
+- Framework: [`docs/pillars-of-common-sense.md`](docs/pillars-of-common-sense.md) (generated from `shared/pillars.ts`)
+- Original source framework: [`docs/four-pillars-of-respect.md`](docs/four-pillars-of-respect.md)
 
 ## Stack
 
@@ -14,6 +15,13 @@ A mobile-first PWA that walks you through a real situation using the **Four Pill
 | Database | Cloudflare D1 |
 | AI | Gemini API (free tier), called only from Functions |
 | Sign-in | Google sign-in (ID token verified server-side) |
+
+## The pillar set
+
+Everything the app says about the pillars lives in `shared/pillars.ts`: the set's title and intro, each pillar's everyday name, color, statement, meaning, boundaries, example and "ask yourself" questions, plus the key definitions and scope. The Home tiles, the Pillars page, the result screen and the AI's instructions all read from it.
+
+- To change wording: edit `shared/pillars.ts`, then regenerate the doc with `UPDATE_DOCS=1 npm test` (a test fails if they drift apart).
+- Custom pillar sets later: add another `PillarSet`. The 14 fact checks and rules in `shared/reading.ts` are tailored to the current four pillars, so a custom set will need its own checks or a freer reading mode.
 
 ## Project layout
 
