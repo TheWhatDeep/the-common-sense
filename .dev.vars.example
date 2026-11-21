@@ -1,4 +1,4 @@
-# Copy to .dev.vars for `npm run pages:dev`. Never commit .dev.vars.
+# Copy to .dev.vars for `npm run worker:dev`. Never commit .dev.vars.
 GEMINI_API_KEY=your-key-here
 GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
 # Local only: enables a "dev sign-in" button. Ignored unless the request is from localhost.
