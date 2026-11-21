@@ -9,3 +9,6 @@ __pycache__/
 .wrangler/
 test-results/
 e2e/screens/
+
+# Personal project summary: kept out of the public repo until the owner decides
+PROJECT_SUMMARY.md
